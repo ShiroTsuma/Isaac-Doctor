@@ -1,0 +1,24 @@
+/build/
+/captures/
+*.isaacprof
+*.isaacprof.tmp
+__pycache__/
+node_modules/
+/viewer/dist/
+/mod-workbench/
+/.local/
+
+
+/record-game.log
+
+# Local development context, captures and private mod experiments.
+/ai-notes/
+/.codex/
+/.aura/
+
+# Machine-local credentials and configuration.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
