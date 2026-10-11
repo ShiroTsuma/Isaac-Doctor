@@ -170,7 +170,7 @@ export default function App(){
   const metricMap=useMemo(()=>new Map(data?.metrics.map(m=>[m.id,m]) || []),[data]);
   const style={'--drawer-height':`${panelHeight}px`} as CSSProperties;
   return <main className="devtools" style={style} onDragOver={e=>{e.preventDefault();setDragOver(true);}} onDragLeave={e=>{if(!e.currentTarget.contains(e.relatedTarget as Node|null))setDragOver(false);}} onDrop={e=>{e.preventDefault();setDragOver(false);void load(e.dataTransfer.files[0]);}}>
-    <header className="panel-bar"><h1>Performance</h1><span className="app-name">Isaac Doctor</span><span id="filename" className="recording-name" title={name}>{name || 'No recording'}</span><span className="version">0.10.1</span></header>
+    <header className="panel-bar"><h1>Performance</h1><img className="app-icon" src="/favicon.png" width="24" height="24" alt="" /><span className="app-name">Isaac Doctor</span><span id="filename" className="recording-name" title={name}>{name || 'No recording'}</span><span className="version">0.10.1</span></header>
     <div className="toolbar" role="toolbar" aria-label="Performance controls">
       <button className="tool-button" title="Open recording from disk" aria-label="Open recording" onClick={()=>void pickFile()}><Icon name="open"/></button>
       <button className="tool-button" title="Read recordings folder locally. Browser may say Upload; no files are sent. Select again to refresh." aria-label="Open folder" onClick={pickDirectory}><Icon name="folder"/></button>

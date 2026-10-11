@@ -4,6 +4,7 @@ Start with the [project README](../README.md) for the portable release, recordin
 
 | Document | Purpose |
 | --- | --- |
+| [Building and testing](BUILDING.md) | Source requirements, development server, checks and release packaging |
 | [CLI](CLI.md) | Commands, automation, units, limits and investigation workflow |
 | [Architecture](ARCHITECTURE.md) | Runtime components, data flow and source entry points |
 | [Roadmap](ROADMAP.md) | Implemented capabilities, remaining work and measurement semantics |

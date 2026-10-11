@@ -1,297 +1,194 @@
-# Isaac Doctor
+<p align="center">
+  <img src="viewer/public/isaac-doctor.png" width="128" height="128" alt="Isaac Doctor pixel art mascot">
+</p>
 
-**Find the callbacks behind slow frames in The Binding of Isaac: Repentance+.**
+<h1 align="center">Isaac Doctor</h1>
 
-Isaac Doctor records mod callback timings, frame cadence and game context, then lets you inspect them in a local browser. Start with a frame spike, expand the responsible mod and hook, and open the Lua function beside its timing.
+<p align="center">
+  <strong>Find the mod callbacks behind slow frames.</strong><br>
+  A local performance profiler for The Binding of Isaac: Repentance+ with REPENTOGON.
+</p>
 
-The interface follows the workflow of Chrome DevTools' Performance panel: a navigable timeline, configurable graphs, screenshot filmstrip and a resizable analysis drawer. A headless CLI exposes the same analysis for scripts and automation.
+<p align="center">
+  <a href="https://github.com/ShiroTsuma/Isaac-Doctor/releases"><img src="https://img.shields.io/badge/Download-Windows_x64-8ab4f8?style=flat-square" alt="Download for Windows x64"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-98c379?style=flat-square" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/Status-Under_development-e5c07b?style=flat-square" alt="Under development">
+</p>
 
-> **Development status:** working profiler, under active development. Windows + Repentance+ + REPENTOGON. The executable names and scripts currently use `isaacprof`.
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#explore-a-recording">Screenshots</a> ·
+  <a href="#configure-your-capture">Capture scope</a> ·
+  <a href="#a-real-fix-diepios-hud">A real fix</a> ·
+  <a href="docs/README.md">Documentation</a>
+</p>
 
-[Getting started](#getting-started) | [Features](#features) | [A real example](#a-real-example-diepios-hud) | [CLI](#headless-analysis) | [Measurement details](#reading-the-numbers) | [Roadmap](#roadmap)
+![Real game recording with FPS percentiles, callback timeline, screenshot filmstrip and per-mod rankings](docs/images/performance-overview.png)
 
-![A real 90-second Isaac recording: FPS percentiles, callback timeline, screenshot filmstrip and per-mod rankings](docs/images/performance-overview.png)
+*A real 90-second recording. Add graphs with **+**, choose their channels, and inspect the same time range across the timeline and analysis views.*
 
-*Actual game recording, with separate FPS and callback graphs. Use the + button to add a graph and choose its channel.*
+Select a slow frame, expand **mod → hook → function**, and read the Lua source beside its timings. Isaac Doctor gives mod authors a Chrome DevTools-style performance workflow: a zoomable timeline, independent graphs, screenshot filmstrip and resizable analysis drawer.
 
-## Why use it?
-
-A low FPS counter tells you the game slowed down. To fix a mod, you need to know which callback ran, how often it ran, how much time it took and what was happening in the room.
-
-Use Isaac Doctor to:
-
-- Find expensive mods, then expand **mod > hook > function** instead of guessing from the installed mod list.
-- Separate a rare room-entry stall from work that repeats on every update or render.
-- Inspect slow frame intervals alongside entity counts, effects, projectiles and recorded screenshots.
-- Read the actual Lua fragment for a selected callback and check its file hash against the recording.
-- Compare recordings after a change, including per-call cost and call rate.
-- Query a large recording from the CLI without opening the browser.
-
-## Features
-
-| Area | What you can inspect |
+| Find | Investigate |
 | --- | --- |
-| Callback profiling | Calls, errors, inclusive time, self time, mean and maximum duration; parent/child spans |
-| Timeline | Zoom, pan, range selection, call tree, sortable event log and screenshot filmstrip |
-| Rankings | Bottom-up views grouped by mod, hook or callback; expandable breakdowns |
-| Frames | Separate render and update intervals, FPS/UPS, duration percentiles and the slowest intervals |
-| Graphs | Callbacks, frame duration, FPS/UPS and rolling percentiles, callback counts/self time, Lua-thread CPU, heap and entity counts |
-| Game context | Run/room/level/end/exit markers; sampled room dimensions and entity/effect/projectile counts |
-| Memory and CPU | Process working set/private bytes, page faults, process and Lua-thread CPU counters, VM-wide Lua heap |
-| Source context | Local Lua fragments with line numbers, function definition and recorded disk hash comparison |
-| Recording | Browser or script control; selectable start/stop conditions and separate millisecond delays |
-| Capture scope | Independent data channels and exact mod/hook filters; settings stored inside the binary recording |
-| Large recordings | Indexed range reads, bounded caches, Web Workers and prepared analysis saved in the same file |
-| Automation | Structured CLI output, persistent JSONL sessions and a quiet `--non-interactive` mode |
+| Expensive callbacks | Calls, self/inclusive time, mean/max duration and nested callback trees |
+| Frame spikes | Render/update intervals, FPS/UPS, rolling percentiles and sortable slow-frame breakdowns |
+| Room-dependent costs | Entity, effect and projectile counts, room context, run markers and screenshots |
+| The code responsible | Local Lua fragments, line numbers and recorded file-hash comparison |
+| Changes after a fix | Compare recordings by mod, hook or callback, including cost per call and call rate |
+| Large traces | Binary streaming, indexed range reads, Web Workers and reusable analysis in the original file |
 
-### Inspect the slow intervals
+## Quick start
 
-Choose **Frames**, select Render or Update, and sort by wall time. Open an interval to inspect its retained callback breakdown, or select its costliest callback to see the source context. A selection shorter than one complete interval offers **Show enclosing frame**.
+**Requires:** Windows x64, Repentance+ with [REPENTOGON](https://github.com/TeamREPENTOGON/REPENTOGON), and Chrome or Edge. The portable package includes the runtime and native tools.
 
-![Slow render intervals with wall time, callback self time, update activity and costliest callbacks](docs/images/slow-frames.png)
+1. Open [**Releases**](https://github.com/ShiroTsuma/Isaac-Doctor/releases) and download `IsaacDoctor-VERSION-windows-x64.zip` when an asset is available.
+2. **Extract the entire ZIP** to a writable folder and double-click **IsaacDoctor.exe**. Keep its launcher window open; the profiler opens in your browser.
+3. Start Isaac through **REPENTOGONLauncher**, using your usual Steam launch configuration, then click **Connect game**.
+4. Choose **Connect captures folder** and select the extracted package's `bin/captures` folder. This lets the viewer refresh and open completed recordings automatically.
+5. Choose your recording conditions, click **Record**, and reproduce the slowdown. The default collects 25 seconds after a loaded-run update.
 
-### See what changed in the room
+No Python, Node.js, Visual Studio or build step is needed for the portable release. To build the project yourself, follow [Building and testing](docs/BUILDING.md).
 
-Add entity and effect graphs beside FPS, then select the section where cadence drops. Use the filmstrip to see the room at that point; hover a thumbnail for a larger image. This helps you investigate an effect-heavy room separately from a transition or a recurring render callback.
+> [!IMPORTANT]
+> Start the game through **REPENTOGONLauncher**. Keep your existing launcher configuration for save compatibility. The profiler attaches to the running game and does not launch Isaac.
 
-![A selected busy-room interval with FPS percentiles, entity and effect graphs, an enlarged game screenshot and mod rankings](docs/images/room-context.png)
+You can also open or drag in a `.isaacprof` recording. **Connect captures folder** remembers a live handle; your browser may ask you to grant access again after restarting. File-input and folder-input selections provide a snapshot of the chosen files.
 
-### Follow the calls
+<details>
+<summary><strong>Stopping, restarting and updating</strong></summary>
 
-Zoom into a few frames to read individual hooks and nested callbacks. Select a range to rank its retained calls, or click a callback to inspect its duration and source. All graphs share the selected time range; each graph has its own channel choice.
+**Stop local server**, closing the launcher window, or pressing Ctrl+C stops an active recording and closes the controller. Loaded analysis remains available in the browser, with game controls disabled. Double-click **IsaacDoctor.exe** again and use the newly opened page, or reload the previous tab once the launcher is running.
 
-![A close view of real callback spans and per-hook costs](docs/images/callback-detail.png)
+Closing the browser tab alone leaves the controller running. The game stays open, and the injected DLL stays loaded until the game exits. Restart through the game launcher before switching profiler versions. Recordings can be large, so leave free disk space in the extracted folder.
 
-## Getting started
+</details>
 
-### Download and run (portable release)
+## Explore a recording
 
-Open this repository's **Releases** page and download `IsaacDoctor-VERSION-windows-x64.zip` when a release is available. **Extract the whole archive**, then double-click **IsaacDoctor.exe**. It opens a visible launcher window, starts the local controller and opens the profiler in your browser. Keep the launcher window open while recording. No Python, Node.js, Visual Studio or compilation is needed.
+### Pick a slow frame
 
-Start Isaac separately through **REPENTOGONLauncher**, then choose **Connect game** and **Record** in the profiler. Connect the captures folder to `IsaacDoctor/bin/captures` to open completed recordings automatically. Use a writable location with enough free disk space.
+Open **Frames**, choose Render or Update, and sort by wall time. Inspect the retained callback breakdown or select the costliest callback. For a selection shorter than one complete interval, use **Show enclosing frame**.
 
-The release requires Windows x64, Repentance+ with REPENTOGON, and Chrome or Edge. The x86 game instrumentation and x64 collector are both included.
+![Slow render intervals with wall time, callback self time and costliest callbacks](docs/images/slow-frames.png)
 
-**Stop local server**, closing the launcher window, or pressing Ctrl+C stops an active recording and closes the controller. The loaded analysis remains in the browser; game controls are disabled after shutdown. To reconnect, double-click **IsaacDoctor.exe** again and use the newly opened page, or reload the previous tab once the launcher is running. Closing a browser tab alone does not close the controller. The game stays running; the injected DLL stays resident until the game exits. Restart the game through its launcher before switching profiler versions.
+### Put a spike in context
 
-### Building from source: requirements
+Add entity and effect graphs beside FPS. Select the section where cadence drops and inspect the filmstrip; hover a thumbnail for a larger image. Separate a busy room from a transition or recurring render work.
 
-- **Windows 64-bit**, with **The Binding of Isaac: Repentance+** and **REPENTOGON**. The game-facing DLL and injector are x86; the collector runs as x64.
-- **Visual Studio 2022 C++ tools**, including x86/x64 targets, Windows SDK and CMake.
-- **Node.js 26 x64** and **pnpm**. The package manifest pins the package manager version.
-- **Python 3** for the local recording controller. Offline CLI analysis does not need Python.
-- **Chrome or Edge** for persistent folder access and saving prepared analysis into the original recording.
+![Busy-room selection with FPS percentiles, entity/effect graphs, game screenshot and mod rankings](docs/images/room-context.png)
 
-### Build
+### Follow the call tree
 
-From the repository root:
+Zoom into individual hooks and nested calls, then rank a selected range in **Bottom-up**. Expand a mod to inspect its hooks and functions. Each graph has its own channel choice; all graphs share navigation and the selected time range.
 
-```powershell
-.\build.ps1
-pnpm --dir viewer install --frozen-lockfile
-pnpm --dir viewer build
-```
+![Zoomed callback spans and per-hook costs](docs/images/callback-detail.png)
 
-The native build produces these files in `build/Release`:
+## Configure your capture
 
-| File | Purpose |
-| --- | --- |
-| `isaacprof.dll` | Native callback instrumentation inside the game |
-| `isaacprof-injector.exe` | Attach, status, record, stop and callback catalog commands |
-| `isaacprof-collector.exe` | x64 process that writes the binary recording |
-| `isaacprof-analyze.exe` | Small native aggregate-report reader |
+Choose **when to start**, **when to stop**, and an independent delay in milliseconds for each. Conditions include a loaded run, room/level entry, projectile/tear/effect/NPC spawn, damage, run end and game exit. You can also start immediately, stop after a duration, or stop manually. The dropdowns show which conditions the connected game exposes.
 
-Keep the DLL and collector together in this output directory. The injector loads the DLL from there. CMake fetches pinned MinHook and REPENTOGON Lua dependencies on the first build.
+![Capture configuration showing channel switches, mod/hook filters and start/stop delays](docs/images/capture-configuration.png)
 
-### Record from the browser
+*Example: select Diepio and CuerLib update/render callbacks, start 250 ms after room entry, and stop after the configured duration plus a 1,000 ms delay.*
 
-1. Start Isaac **through REPENTOGONLauncher**, using your working Steam launch configuration. The profiler attaches to the running game; it does not launch Isaac.
-2. Run `.\open-profiler.ps1` and open the local viewer.
-3. Click **Connect game**. Wait until the game API is ready.
-4. Click **Connect captures folder** and select `build/Release/captures`. Grant write access if you want to save prepared analysis into the original files.
-5. Choose the recording conditions and capture scope, then click **Record**. The default records 25 seconds after the next loaded-run update.
-6. Play through the situation you want to investigate. The viewer shows collecting/saving/loading progress and opens the completed recording through the connected folder handle.
+- **Channels:** select callback timings, render/update frames, counters, memory, context, markers, errors and other available data. Screenshots have a separate switch.
+- **Mods and hooks:** names load after **Connect game**. Use **Refresh lists** to read them again, select names from the dropdowns, or enter exact names one per line. Empty filters mean all; populated mod and hook filters must both match. Hooks also accept numeric IDs.
+- **Minimum duration:** uses microseconds, so `1000 µs = 1 ms`. Short selected calls stay in aggregate timings but leave the saved timeline. Mod/hook filters and disabling callback timings bypass measurement for excluded calls.
 
-**Launch Isaac through REPENTOGONLauncher.** Keep the launcher configuration you already use for your saves; do not start `isaac-ng.exe` directly for profiling.
+The recording stores its capture settings. Triggers still work when their data channels are disabled. Repeated matching events do not reset a pending delay; **Stop** remains immediate. Canceling before collection begins creates no recording.
 
-You can also open a `.isaacprof` file, drag it onto the viewer, or use the folder-input fallback. Those choices give a snapshot of the selected files. **Connect captures folder** remembers a live handle and refreshes its listing; the browser may ask you to reconnect permission after a restart.
+<details>
+<summary><strong>Record from a script when running from source</strong></summary>
 
-### Record with a script
-
-With the game already running:
+With the game already running through its launcher:
 
 ```powershell
 # Default: 25 seconds after a loaded-run update.
 .\record-game.ps1
 
-# Start one second after entering a room; collect for 60 seconds.
+# Start one second after room entry; collect for 60 seconds.
 .\record-game.ps1 -Seconds 60 -StartOn room-entry -StartDelayMs 1000
 
-# Start on a projectile and stop 750 ms after the next room entry.
+# Start on a projectile; stop 750 ms after the next room entry.
 .\record-game.ps1 -StartOn projectile -StopOn room-entry -StopDelayMs 750
 ```
 
-Available event conditions include loaded-run updates, room/level entry, projectile/tear/effect/NPC spawn, damage, run end and game exit. Start also supports **Immediately**; stop also supports **After duration** and **Manual stop only**. The dropdowns show which events the connected game exposes.
-
-Each delay uses **milliseconds**. Repeated matching events do not reset a pending delay. **Stop** remains immediate, regardless of the configured automatic stop delay. If you cancel before recording begins, the profiler creates no capture file.
-
-Recordings go to `build/Release/captures`, with the UTC request timestamp in the filename:
+Source builds save recordings in `build/Release/captures`; portable releases use `bin/captures`. Filenames include the UTC request/arming time; an event trigger can begin collecting later.
 
 ```text
 capture-2026-10-11_19-12-48-713Z-pid36824-26943828.isaacprof
 ```
 
-The timestamp describes the request/arming time. A delayed event trigger can begin collecting later.
+</details>
 
-### Choose the capture scope
+## A real fix: Diepio's HUD
 
-Expand **Capture scope** to enable the channels you need. For a cadence-only recording, keep Render frames / FPS and Update frames / UPS, and switch off callback timings and the other channels. For a focused investigation, keep callback timings and select exact mod/hook names from the dropdowns. Available names load automatically after **Connect game**; **Refresh lists** reads them again. Loading, empty catalogs and failures are shown beside that button, with retry available.
+In our recordings, Diepio performed HUD work on each render. We expanded **Bottom-up → Mods → Diepio**, followed three expensive render callbacks, and opened their local Lua source in **Summary → Source context**.
 
-![Capture configuration with channel switches, automatic mod/hook lists, selected names and independent start/stop delays](docs/images/capture-configuration.png)
+![Diepio render callback with timing summary and its local Lua source](docs/images/diepio-source.png)
 
-*Example configuration: record Diepio and CuerLib update/render callbacks, start on room entry after 250 ms, and stop after the configured duration plus a 1,000 ms delay. Names can also be entered manually.*
+The HUD paths recreated fonts and repeated asset loading during renders. We cached three font instances and a reusable HUD sprite, preserving their drawing conditions. After restarting through the launcher, we recorded again and compared mean self time per call.
 
-Empty mod or hook filters mean **all**. When both filters contain entries, a callback must match both. You can also enter names one per line; hooks accept their name or numeric ID. Triggers continue to work when their data channels are disabled.
-
-The timeline and Lua error context require callback timings. Screenshots have their own switch. Minimum callback duration uses **microseconds**: `1000 µs = 1 ms`. It filters saved timeline events while keeping aggregate timings for the selected callbacks. Short selected calls still incur timing overhead; the mod/hook filters and callback channel switch bypass their measurement.
-
-Capture settings travel with the recording, so a reader can distinguish an intentionally disabled channel from unavailable data.
-
-## A real example: Diepio's HUD
-
-In our recordings, Diepio performed HUD work on each render. Three callbacks stood out: `onRenderdrop`, `onRenderdropagain` and `RenderHeadcount`.
-
-We used this workflow:
-
-1. Open the recording and select **Bottom-up → Mods**. Expand Diepio's render hook to see the individual functions.
-2. Switch to **Callbacks** and select the relevant `main.lua` function. Open **Summary → Source context**, then connect the local Diepio mod folder.
-3. Read the function beside its timings. The HUD paths recreated fonts and repeated asset loading during renders. We cached three font instances and the reusable HUD sprite, preserving the conditions for drawing them.
-4. Restart through the launcher, record again, and compare the same functions using mean self time per call. Check the recorded source hashes against the patched files.
-
-![The selected Diepio render callback with timing summary and its real local Lua source](docs/images/diepio-source.png)
-
-| Callback | Before: mean self per call | After: mean self per call |
+| Callback | Before | After |
 | --- | ---: | ---: |
 | `onRenderdrop` | 0.1888 ms | 0.0240 ms |
 | `onRenderdropagain` | 0.0897 ms | 0.0003 ms |
 | `RenderHeadcount` | 0.1985 ms | 0.0063 ms |
-| **Combined** | **0.4770 ms** | **0.0306 ms** |
+| **Combined mean self time per call** | **0.4770 ms** | **0.0306 ms** |
 
-That is about **94% less measured self time** across these three HUD callbacks. The recordings came from different runs, so this is an observed function-level improvement, not a controlled FPS benchmark. Whole-session mean FPS stayed near 58 in both recordings; other callbacks and engine work still matter.
+These callbacks used about **94% less measured self time**. The captures came from different runs, so this is an observed function-level improvement rather than a controlled FPS benchmark. Whole-session mean FPS remained near 58; other callbacks and engine work still matter.
 
-Room context also helped choose the next investigation. In the newer recording, CuerLib's grid-update callback averaged about **0.310 ms** in smaller-room intervals and **0.826 ms** in larger-room intervals. The source scans room grid cells, which makes room-size scaling a useful lead. Those cohorts are sampled observational data; verify a proposed fix with matched rooms and repeated recordings.
+To try this workflow on your mod, connect its local folder when opening **Source context**, compare the recorded hashes against your files, and make another capture after the change.
 
 ## Headless analysis
 
-The CLI shares the browser's TypeScript analysis implementation and reads recordings from disk. It does not need the local web server or a running game.
+The CLI shares the viewer's TypeScript analysis code. Query recordings from disk without opening the browser or running the game. The full CLI requires the source checkout and Node.js; the portable package includes an aggregate-only native reader.
 
 ```powershell
 .\isaacprof-cli.cmd --describe
 .\isaacprof-cli.cmd list build/Release/captures --non-interactive
-
-# Replace recording.isaacprof with a path from the listing.
-.\isaacprof-cli.cmd report recording.isaacprof --top 10 --non-interactive
 .\isaacprof-cli.cmd diagnose recording.isaacprof --top 10 --non-interactive
 .\isaacprof-cli.cmd frames recording.isaacprof --clock render --top 10 --non-interactive
-
-# Inspect a slow section, then the source of a discovered metric.
-.\isaacprof-cli.cmd rank recording.isaacprof --start-ms 35000 --end-ms 40000 --group mods --non-interactive
-.\isaacprof-cli.cmd source recording.isaacprof --metric 454 --mods "path\to\mods" --non-interactive
 ```
 
-Discover metric IDs from the recording; the IDs and sample time range above are examples. `diagnose` compares typical/slow intervals, update activity, time windows and sampled room/entity cohorts. `--non-interactive` suppresses progress output for machine use. Human-facing processing progress goes to stderr.
+Use `serve` for persistent JSONL queries and shared caches. `prepare --write` stores reusable binary analysis in the original recording. `--non-interactive` suppresses progress output for automation. See the [CLI reference](docs/CLI.md) for commands, filters and source queries.
 
-Use `serve` for persistent JSONL queries with a shared index/cache. `prepare --write` stores reusable binary analysis in the original recording. See [CLI reference](docs/CLI.md) for schemas, filters, source matching, limits and examples.
+## Local by design
 
-## How it works
+Your recordings and Lua sources stay on your machine. The browser reads files through local inputs or permissioned folder handles, and Web Workers process the capture bytes. A loopback controller handles game commands. The application does not upload recordings; a browser dialog labeled “Upload” still selects local files here.
 
-```mermaid
-flowchart LR
-    Game["Isaac + REPENTOGON
-x86 native DLL"] --> Buffer["Bounded shared-memory buffers"]
-    Buffer --> Collector["x64 collector"]
-    Collector --> Trace["Local .isaacprof file
-Binary blocks + time index"]
-    Trace --> Worker["Browser Web Workers
-Indexed range reads"]
-    Trace --> CLI["Headless CLI
-Same analysis code"]
-    Worker --> UI["React performance viewer"]
-```
+The native DLL measures registered callbacks in C++ and streams events to an x64 collector. The collector writes indexed binary `.isaacprof` files. The viewer reads the blocks needed for a selected range and can save prepared analysis in the same file.
 
-The DLL installs native C wrappers around registered mod callbacks and uses `QueryPerformanceCounter` for timings. Lua bootstrap code connects the wrappers to the game's callback registration API. The timing path runs in C++; it uses the Lua library already loaded by REPENTOGON.
+<details>
+<summary><strong>Understand the measurements</strong></summary>
 
-Game callbacks publish to bounded shared-memory buffers. The collector writes versioned binary blocks with CRCs, time ranges and an index. Buffer capacity limits pending events, not the total recording length. Overflow and missing data remain explicit.
+- **Inclusive time** includes nested instrumented callbacks; **self time** subtracts them. Both measure wall time, including native game APIs and waiting.
+- **FPS/UPS** measure cadence between native render/update observations, rather than GPU time or display presentation. Duration p95/p99 describe slow intervals; FPS graphs use reciprocal rates and show the rolling sample population.
+- **Scope affects attribution.** Excluded child work remains in the measured parent's self time. Coroutine callbacks are omitted because yield/resume wall time would misrepresent execution cost.
+- **Context uses samples.** Room/entity counters need not match each frame exactly. Process memory and Lua-VM heap are not per-mod allocation measurements.
+- **Coverage is explicit.** Duration-filtered calls stay in selected aggregates; timeline detail, dropped events, discarded calls and interrupted captures have separate coverage information.
+- **Overhead measurements are partial.** Wrapper estimates and observer timings omit parts of collection, screenshots and timing-probe effects. Use independent cadence measurements and repeated matched A/B runs to estimate total impact.
+- **Source hashes describe disk files at capture time.** A match does not prove the game loaded identical bytecode earlier.
 
-The viewer reads selected blocks with `File.slice()` inside Web Workers. It keeps bounded caches and uses timeline previews for wide ranges. Prepared statistics for the session, halves and quarters live in a versioned section of the same recording; the viewer still queries arbitrary ranges and exact retained calls.
+If you share a recording, inspect its file paths, mod names, error stacks and screenshots first.
 
-### Local files and privacy
+</details>
 
-Recordings and Lua sources stay on your machine. The browser reads them through file inputs or permissioned file handles; the application does not upload them. A loopback Python controller handles recording commands, while workers process capture bytes in the browser. If a browser labels its folder-input dialog "Upload", that dialog still selects local files for this application.
+## Documentation and development
 
-You can share a recording yourself. Captures can include file paths, mod names, error stacks, source hashes and game screenshots, so inspect those details before publishing a trace.
+| Guide | Contents |
+| --- | --- |
+| [Building and testing](docs/BUILDING.md) | Source setup, development server, checks and portable release packaging |
+| [CLI reference](docs/CLI.md) | Commands, structured output, automation and investigation examples |
+| [Architecture](docs/ARCHITECTURE.md) | Native instrumentation, collector, controller and viewer |
+| [Streaming format](docs/STREAMING.md) | Binary blocks, index, integrity and prepared analysis |
+| [Roadmap](docs/ROADMAP.md) | Implemented features and planned work |
 
-## Reading the numbers
+The project is under active development. Compatibility testing, matched A/B captures and deeper engine/GC attribution remain areas for improvement. When reporting a problem in [Issues](https://github.com/ShiroTsuma/Isaac-Doctor/issues), include the release version, game/REPENTOGON versions, selected capture scope and steps to reproduce it.
 
-- **Inclusive time** covers a callback and its nested instrumented callbacks. **Self time** subtracts those nested timings. Both measure wall time, including native game APIs and waiting.
-- **FPS/UPS** describe the cadence between native render/update observations. They do not measure GPU execution or display presentation. Duration percentiles describe slow intervals; higher p95/p99 means longer intervals. FPS graphs use reciprocal rates and show the sample population for their rolling window.
-- **Selected scope** changes attribution. Work in excluded child callbacks stays in the self time of a measured parent. Coroutine callbacks are deliberately omitted because yield/resume wall time would misrepresent execution cost.
-- **Room and entity context** uses samples rather than exact counts for each frame. Process and Lua-VM memory are not per-mod allocation measurements.
-- **Filtered calls** remain in selected callback aggregates but disappear from timeline/range detail. Dropped events, discarded calls and interrupted captures have separate coverage information.
-- **Profiler overhead** includes a sampled wrapper estimate and observer timing. It excludes parts of collection, screenshots and timing-probe effects. Use an independent cadence measurement and repeated matched A/B runs to estimate total impact.
-- **Source hashes** describe files on disk at capture time. A matching hash does not prove the game loaded identical bytecode earlier.
+## Acknowledgements and license
 
-## Development
+Isaac Doctor targets [REPENTOGON](https://github.com/TeamREPENTOGON/REPENTOGON)'s game extension and Lua API and uses [MinHook](https://github.com/TsudaKageyu/minhook) for native hooking. The viewer workflow draws inspiration from Chrome DevTools Performance, [Perfetto](https://github.com/google/perfetto) and [speedscope](https://github.com/jlfwong/speedscope). [Mod Profiler](https://steamcommunity.com/sharedfiles/filedetails/?id=2505060515) provides an existing in-game workflow for Isaac modders and informed the feature baseline.
 
-```powershell
-pnpm --dir viewer dev
-```
-
-This starts Vite with its managed local Python controller. Ending that Vite process stops/finalizes active recording and closes its controller. `.\open-profiler.ps1` starts a separate built viewer; use **Stop local server** to stop recording and close that controller. In development this leaves Vite serving the analysis UI; it does not close Vite.
-
-`pnpm --dir viewer build` runs strict TypeScript checks and ESLint with zero warnings before building. Native targets use compiler warnings as errors.
-
-Controlled capture tests use owned Lua host processes rather than launching Isaac:
-
-```powershell
-.\build.ps1 -BuildDirectory build/stream-dev
-python tests/capture-triggers.py
-python tests/stream-smoke.py
-python tests/controller-server.py
-node --experimental-strip-types --test tests/diagnosis.test.cjs tests/cli.test.cjs tests/debugging.test.cjs tests/frames.test.cjs tests/worker-client.test.cjs tests/recording-files.test.cjs
-```
-
-Browser regression scripts in `tests/` exercise graph navigation, sorting, folder refresh and recording lifecycle against the built local viewer. See [streaming format](docs/STREAMING.md), [binary format](docs/FORMAT.md) and [project roadmap](docs/ROADMAP.md) for implementation details.
-
-### Creating a release
-
-```powershell
-.\package-release.ps1
-```
-
-This builds the native targets and viewer, bundles a Python runtime into `IsaacDoctor.exe`, and writes a portable ZIP and SHA-256 checksum under `build/releases`. `-SkipBuild` packages existing outputs. Upload the ZIP and checksum as GitHub Release assets; do not commit build outputs. The package includes dependency notices and excludes test hosts, game binaries, mods and private captures. Test the extracted archive with `python tests/release-smoke.py PATH_TO_ZIP` after generating the controlled host in `build/stream-dev`. This checks startup without external runtimes, local UI serving, recording and shutdown against the owned host; game compatibility still needs a launcher-based real-game session.
-
-## Roadmap
-
-- [x] Native callback timing and aggregate rankings.
-- [x] Binary streaming, x64 collection, indexed reads and explicit loss reporting.
-- [x] Browser timeline, frame inspection, configurable graphs and local source context.
-- [x] FPS/UPS, percentiles, sampled room/entity context, process/VM counters and error stacks.
-- [x] Shared headless analysis with progress and non-interactive output.
-- [x] Triggered start/stop recording, independent delays and channel/mod/hook selection.
-- [ ] Matched A/B capture workflow and independent profiler-overhead baselines.
-- [ ] More engine/GC attribution and allocation diagnostics where instrumentation permits.
-- [x] Portable Windows release packaging with bundled runtime and checksums.
-- [ ] Broader compatibility checks and reproducible public demo recordings.
-
-## Acknowledgements
-
-[REPENTOGON](https://github.com/TeamREPENTOGON/REPENTOGON) supplies the game extension and Lua API this profiler targets. Native hooking uses [MinHook](https://github.com/TsudaKageyu/minhook).
-
-The viewer workflow takes inspiration from Chrome DevTools Performance, [Perfetto](https://github.com/google/perfetto) and [speedscope](https://github.com/jlfwong/speedscope). [Mod Profiler](https://steamcommunity.com/sharedfiles/filedetails/?id=2505060515) provides an existing in-game profiling workflow for Isaac modders and informed the feature baseline.
-
-Isaac Doctor is an independent community project and has no affiliation with the game's developers or those projects.
-
-## License
-
-Project code is available under the [MIT license](LICENSE). Dependencies retain their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md). Game assets and third-party mods shown in examples belong to their respective authors and are not licensed by this project.
+Project code uses the [MIT license](LICENSE); dependencies retain their licenses in [third-party notices](THIRD_PARTY_NOTICES.md). Game assets and third-party mods shown in examples belong to their authors. Isaac Doctor is an independent community project with no affiliation with the game's developers or the projects above.

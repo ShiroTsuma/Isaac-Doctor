@@ -20,6 +20,7 @@ for name in required:
 if not (root / 'viewer/dist/index.html').is_file():
     raise SystemExit('Missing viewer output. Run pnpm --dir viewer build first.')
 subprocess.run([sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean', '--onedir', '--console', '--hidden-import', 'viewer-server', '--paths', str(root / 'tools'),
+                '--icon', str(root / 'viewer/public/isaac-doctor.ico'),
                 '--name', 'IsaacDoctor', '--distpath', str(output),
                 '--workpath', str(output / 'work'), '--specpath', str(output / 'spec'),
                 str(root / 'tools/release-launcher.py')], cwd=root, check=True)
