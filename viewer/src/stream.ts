@@ -132,8 +132,10 @@ export class StreamCapture {
         const v=new DataView(await this.payload(b));let p=0;
         const u32=()=>{if(p+4>v.byteLength)throw Error('Truncated capture configuration.');const n=v.getUint32(p,true);p+=4;return n;};
         const names=()=>{const count=u32();if(count>128)throw Error('Invalid capture scope.');const result:string[]=[];for(let i=0;i<count;i++){const length=u32();if(!length || length>4095 || p+length>v.byteLength)throw Error('Invalid scope name.');result.push(new TextDecoder('utf-8',{fatal:true}).decode(new Uint8Array(v.buffer,p,length)));p+=length;}return result;};
-        const config={version:u32(),channels:u32(),startOn:u32(),stopOn:u32(),startDelayMs:u32(),stopDelayMs:u32(),selectedMods:names(),selectedHooks:names()};
-        if(config.version!==1 || config.channels>2047 || config.startOn>10 || config.stopOn<1 || config.stopOn>12 || config.startDelayMs>3600000 || config.stopDelayMs>3600000 || p!==v.byteLength)throw Error('Invalid capture configuration.');
+        const version=u32();
+        if(version!==1 && version!==2)throw Error('Unsupported capture configuration version.');
+        const config={version,channels:u32(),startOn:u32(),stopOn:u32(),startDelayMs:u32(),stopDelayMs:u32(),maxDurationMs:version===2?u32():0,selectedMods:names(),selectedHooks:names()};
+        if(config.channels>2047 || config.startOn>10 || config.stopOn<1 || config.stopOn>12 || config.startDelayMs>3600000 || config.stopDelayMs>3600000 || config.maxDurationMs>3600000 || p!==v.byteLength)throw Error('Invalid capture configuration.');
         this.document.configuration=config;
       }
       if(b.type===4){if(b.bytes!==24)throw Error('Invalid loss block.');const v=new DataView(await this.payload(b)),count=integer(v,0),start=integer(v,8),end=integer(v,16);if(start>end)throw Error('Invalid loss interval.');this.document.losses.push({count,start_ns:start/this.frequency*1e9,end_ns:end/this.frequency*1e9});}

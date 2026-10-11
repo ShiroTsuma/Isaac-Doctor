@@ -98,13 +98,14 @@ const char* stateName(LONG state) {
 int wmain(int argc, wchar_t** argv) {
     try {
         if (argc < 2) {
-            std::cout << "IsaacProf 0.10\nCommands: attach | status | record | stop | catalog\n"
+            std::cout << "IsaacProf 0.11\nCommands: attach | status | record | stop | catalog\n"
                 "Options: --pid PID (default: isaac-ng.exe), --dll PATH, --seconds 15\n"
                 "Timeline: --trace [--events 250000 (pending ring capacity)] [--min-us 0]\n"
                 "Minimum: 1000 us = 1 ms; shorter calls remain in aggregate totals.\n"
                 "Triggers: --start-on immediate|run-load|room-entry|level-entry|projectile|tear|effect|npc|damage|run-end|game-exit\n"
                 "         --stop-on duration|manual|run-load|room-entry|level-entry|projectile|tear|effect|npc|damage|run-end|game-exit\n"
                 "         --start-delay-ms 0..3600000 --stop-delay-ms 0..3600000; --after-load aliases --start-on run-load\n"
+                "         --max-duration-ms 0..3600000: independent hard limit after collection begins; 0 disables it\n"
                 "Scope: --channels MASK (default 2047), repeated --mod NAME and --hook NAME/ID; empty filters select all.\n"
                 "Filmstrip: --screenshots [--screenshot-ms 500] (320x180 PNG, max 240)\n"
                 "Examples:\n  isaacprof-injector attach\n  isaacprof-injector record --seconds 15\n";
@@ -117,6 +118,7 @@ int wmain(int argc, wchar_t** argv) {
         bool trace = false, afterLoad = false, screenshots = false;
         LONG screenshotMs = 500;
         LONG startOn = ip::immediate, stopOn = ip::duration, startDelayMs = 0, stopDelayMs = 0;
+        LONG maxDurationMs = 0;
         bool startSpecified = false; LONG channels = ip::allChannels; std::string selectedMods, selectedHooks;
         wchar_t exe[32768]{}; GetModuleFileNameW(nullptr, exe, 32768);
         auto dll = std::filesystem::path(exe).parent_path() / "isaacprof.dll";
@@ -153,6 +155,9 @@ int wmain(int argc, wchar_t** argv) {
                 if (trigger < 0 || (option == L"--start-on" && trigger > ip::game_exit) || (option == L"--stop-on" && trigger == ip::immediate))
                     throw std::runtime_error("Invalid capture trigger; see --help.");
                 if (option == L"--start-on") { startOn = trigger; startSpecified = true; } else stopOn = trigger;
+            } else if (option == L"--max-duration-ms") {
+                maxDurationMs = std::stol(value, &consumed);
+                if (consumed != value.size() || maxDurationMs < 0 || maxDurationMs > 3600000) throw std::runtime_error("Maximum duration must be 0..3600000 ms; 0 disables it.");
             } else if (option == L"--start-delay-ms" || option == L"--stop-delay-ms") {
                 const auto delay = std::stol(value, &consumed);
                 if (consumed != value.size() || delay < 0 || delay > 3600000) throw std::runtime_error("Trigger delay must be 0..3600000 ms.");
@@ -209,6 +214,7 @@ int wmain(int argc, wchar_t** argv) {
             InterlockedExchange(&control->stopTrigger, stopOn);
             InterlockedExchange(&control->startDelayMs, startDelayMs);
             InterlockedExchange(&control->stopDelayMs, stopDelayMs);
+            InterlockedExchange(&control->maxDurationMs, maxDurationMs);
             }
             InterlockedExchange(&control->command, command == L"catalog" ? ip::catalog : command == L"record" ? ip::start : ip::stop);
             const auto request = InterlockedIncrement(&control->request);

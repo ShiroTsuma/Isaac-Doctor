@@ -17,7 +17,7 @@ export interface OverheadSample {time:number;calls:number;samples:number;wrapper
 export interface LuaError {time:number;metric:number;thread:number;span:number;message:string;stack:string}
 export interface Telemetry {counters:CounterSample[];heap:HeapSample[];markers:RunMarker[];inventory?:CaptureInventory;context?:RoomContext[];overhead?:OverheadSample[];errors?:LuaError[]}
 export interface FrameResults {rows:FrameRow[];count:number;slow:number;mean:number;rate:number;p50:number;p95:number;p99:number;maximum:number;incomplete:boolean;sessionCount?:number;enclosingRange?:[number,number]|null}
-export interface CaptureConfiguration {version:number;channels:number;startOn:number;stopOn:number;startDelayMs:number;stopDelayMs:number;selectedMods:string[];selectedHooks:string[]}
+export interface CaptureConfiguration {version:number;channels:number;startOn:number;stopOn:number;startDelayMs:number;stopDelayMs:number;maxDurationMs?:number;selectedMods:string[];selectedHooks:string[]}
 export interface CaptureDocument {configuration?:CaptureConfiguration;losses?:LossInterval[];binary_version?:number;format:string;schema_version:number;profiler_version:string;pid:number;architecture:string;lua_version:number;lua:string;exe:string;duration_ns:number;qpc_frequency:number;registered_metrics:number;dropped_calls:number;skipped_coroutine_calls:number;host_lua_entries:number;complete:boolean;metrics?:Metric[];timeline:TimelineMetadata;limitations?:string[];screenshots?:Screenshots}
 export interface NormalizedLane {key:string;thread:number;depth:number;events:TraceEvent[]}
 export interface Model {document:CaptureDocument;metrics:Map<number,Metric>;events:TraceEvent[];duration:number;lanes:NormalizedLane[];hasTimeline:boolean}

@@ -77,8 +77,10 @@ def decode_stream(data):
                     result.append(payload[cursor:cursor+n].decode('utf8'));cursor+=n
                 return result
             configuration=dict(zip(['version','channels','startOn','stopOn','startDelayMs','stopDelayMs'],[number() for _ in range(6)]))
+            if configuration['version'] not in (1,2):raise ValueError('Unsupported capture configuration version')
+            configuration['maxDurationMs']=number() if configuration['version']==2 else 0
             configuration.update(selectedMods=names(),selectedHooks=names())
-            if configuration['version']!=1 or configuration['channels']>2047 or configuration['startOn']>10 or not 1<=configuration['stopOn']<=12 or max(configuration['startDelayMs'],configuration['stopDelayMs'])>3600000 or cursor!=size:raise ValueError('Invalid capture configuration')
+            if configuration['channels']>2047 or configuration['startOn']>10 or not 1<=configuration['stopOn']<=12 or max(configuration['startDelayMs'],configuration['stopDelayMs'],configuration['maxDurationMs'])>3600000 or cursor!=size:raise ValueError('Invalid capture configuration')
         elif kind==11:
             cursor=4
             def string():

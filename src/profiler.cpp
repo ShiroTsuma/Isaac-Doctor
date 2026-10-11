@@ -42,6 +42,7 @@ std::atomic<bool> hooksReady{false};
 std::atomic<bool> pendingStart{false}, lifecycleAvailable{false};
 std::atomic<LONG> startTrigger{ip::immediate}, stopTrigger{ip::duration};
 std::atomic<long long> startDeadline{0}, stopDeadline{0}, startDelayTicks{0}, stopDelayTicks{0}, durationTicks{0};
+std::atomic<long long> maxDurationTicks{0}, captureDeadline{0};
 std::atomic<unsigned long long> skippedCoroutines{0}, dropped{0}, hostCalls{0};
 decltype(&lua_pcallk) originalPcall = nullptr;
 decltype(&lua_callk) originalCall = nullptr;
@@ -321,6 +322,7 @@ void beginPendingCapture(long long timestamp) {
     sessionStart = timestamp; sessionStop = 0;
     startStreamClock(); ip::setScreenshotClock(true, sessionStart, frequency.QuadPart);
     stopDeadline = stopTrigger.load() == ip::duration ? timestamp + durationTicks.load() + stopDelayTicks.load() : 0;
+    captureDeadline = maxDurationTicks.load() ? timestamp + maxDurationTicks.load() : 0;
     active.store(true); pendingStart.store(false);
     status(ip::recording, "Recording callback timeline and aggregate timings.");
 }
@@ -610,10 +612,11 @@ void flushAuxiliary() {
 }
 void captureConfiguration() {
     std::ostringstream out(std::ios::binary); ip::Writer w{out};
-    w.put<std::uint32_t>(1); w.put<std::uint32_t>(channels.load());
+    w.put<std::uint32_t>(2); w.put<std::uint32_t>(channels.load());
     w.put<std::uint32_t>(startTrigger.load()); w.put<std::uint32_t>(stopTrigger.load());
     w.put<std::uint32_t>(static_cast<std::uint32_t>(startDelayTicks.load() * 1000 / frequency.QuadPart));
     w.put<std::uint32_t>(static_cast<std::uint32_t>(stopDelayTicks.load() * 1000 / frequency.QuadPart));
+    w.put<std::uint32_t>(static_cast<std::uint32_t>(maxDurationTicks.load() * 1000 / frequency.QuadPart));
     for (const auto* scope : {&selectedMods, &selectedHooks}) { w.put<std::uint32_t>(static_cast<std::uint32_t>(scope->size())); for (const auto& name : *scope) w.string(name); }
     sendPacket(ip::configurationChunk, out.str());
 }
@@ -655,7 +658,7 @@ void snapshot(bool complete) {
     writer.put<std::uint32_t>(registeredCount.load()); writer.put<std::uint32_t>(savedMetrics.size());
     writer.put<std::uint32_t>(0); writer.put<std::uint32_t>(stream->capacity);
     writer.put<std::uint64_t>(dropped.load()); writer.put<std::uint64_t>(skippedCoroutines.load()); writer.put<std::uint64_t>(hostCalls.load());
-    writer.put<std::uint64_t>(traceDropped.load()); writer.put<std::uint64_t>(traceFiltered.load()); writer.put(ns(minimumTicks)); writer.string("0.10.0");
+    writer.put<std::uint64_t>(traceDropped.load()); writer.put<std::uint64_t>(traceFiltered.load()); writer.put(ns(minimumTicks)); writer.string("0.11.0");
     const auto exeUtf8 = std::filesystem::path(exe).u8string();
     writer.string(std::string(reinterpret_cast<const char*>(exeUtf8.data()), exeUtf8.size())); writer.string(luaModulePath);
     for (const auto& [id, m] : savedMetrics) {
@@ -745,9 +748,10 @@ DWORD WINAPI worker(void*) {
                         if (seconds < 1 || seconds > 3600) throw std::runtime_error("Duration must be 1..3600 seconds.");
                         const bool tracing = ip::read(&control->trace) != 0;
                         const LONG startOn = ip::read(&control->startTrigger), stopOn = ip::read(&control->stopTrigger);
-                        const LONG startDelay = ip::read(&control->startDelayMs), stopDelay = ip::read(&control->stopDelayMs);
+                        const LONG startDelay = ip::read(&control->startDelayMs), stopDelay = stopOn == ip::manual ? 0 : ip::read(&control->stopDelayMs);
+                        const LONG maxDuration = ip::read(&control->maxDurationMs);
                         if (startOn < ip::immediate || startOn > ip::game_exit || stopOn < ip::run_load || stopOn > ip::manual ||
-                            startDelay < 0 || startDelay > 3600000 || stopDelay < 0 || stopDelay > 3600000)
+                            startDelay < 0 || startDelay > 3600000 || stopDelay < 0 || stopDelay > 3600000 || maxDuration < 0 || maxDuration > 3600000)
                             throw std::runtime_error("Invalid capture trigger or delay (0..3600000 ms).");
                         const auto available = ip::read(&control->availableTriggers);
                         if (!(available & (1L << startOn)) || !(available & (1L << stopOn)))
@@ -775,6 +779,7 @@ DWORD WINAPI worker(void*) {
                             auxiliaryDropped = 0; contextFailures = 0; errorsOmitted = 0;
                             { std::lock_guard auxiliaryLock(auxiliaryMutex); auxiliaryPackets.clear(); }
                             startTrigger = startOn; stopTrigger = stopOn; startDeadline = 0; stopDeadline = 0;
+                            captureDeadline = 0; maxDurationTicks = static_cast<long long>(maxDuration) * frequency.QuadPart / 1000;
                             startDelayTicks = static_cast<long long>(startDelay) * frequency.QuadPart / 1000;
                             stopDelayTicks = static_cast<long long>(stopDelay) * frequency.QuadPart / 1000;
                             durationTicks = static_cast<long long>(seconds) * frequency.QuadPart;
@@ -790,7 +795,7 @@ DWORD WINAPI worker(void*) {
                     } else if (command == ip::stop) {
                         {
                             std::lock_guard lock(metricsMutex);
-                            active.store(false); pendingStart.store(false); startDeadline = 0; stopDeadline = 0; sessionStop = sessionStart ? now() : 0;
+                            active.store(false); pendingStart.store(false); startDeadline = 0; stopDeadline = 0; captureDeadline = 0; sessionStop = sessionStart ? now() : 0;
                             ip::setScreenshotClock(false, sessionStart, frequency.QuadPart);
                         }
                         ip::processScreenshots();
@@ -820,18 +825,21 @@ DWORD WINAPI worker(void*) {
                 flushAuxiliary();
                 if (inventoryPending) { captureConfiguration(); captureInventory(); inventoryPending=false; }
                 if (GetTickCount64() >= nextCounters) { sampleCounters(); nextCounters = GetTickCount64() + 250; }
-                if (stopDeadline.load() && now() >= stopDeadline.load()) {
+                const bool maximumReached = captureDeadline.load() && now() >= captureDeadline.load();
+                if (maximumReached || (stopDeadline.load() && now() >= stopDeadline.load())) {
                     sampleCounters();
                     { std::lock_guard lock(metricsMutex); active.store(false); sessionStop = now(); }
                     ip::setScreenshotClock(false, sessionStart, frequency.QuadPart);
                     Sleep(50); ip::processScreenshots(); snapshot(true);
-                    startDeadline = 0; stopDeadline = 0;
-                    status(ip::ready, "Capture complete; report saved.");
+                    startDeadline = 0; stopDeadline = 0; captureDeadline = 0;
+                    status(ip::ready, maximumReached ? "Maximum duration reached; report saved." : "Capture complete; report saved.");
                 } else if (GetTickCount64() >= nextSnapshot) {
                     snapshot(false); nextSnapshot = GetTickCount64() + 1000;
                 }
                 if (active.load()) {
-                    const auto limit = stopTrigger.load() == ip::duration ? (durationTicks.load() + stopDelayTicks.load()) * 1000 / frequency.QuadPart : 0;
+                    const auto planned = stopTrigger.load() == ip::duration ? durationTicks.load() + stopDelayTicks.load() : 0;
+                    const auto maximum = maxDurationTicks.load();
+                    const auto limit = (maximum ? (planned ? std::min(planned, maximum) : maximum) : planned) * 1000 / frequency.QuadPart;
                     auto message = "Collecting profile: " + std::to_string((now() - sessionStart) * 1000 / frequency.QuadPart) + " ms / " + std::to_string(limit) + " ms; stop " + ip::triggerNames[stopTrigger.load()];
                     if (stopTrigger.load() != ip::duration && stopDeadline.load()) message += "; Stop delay: " + std::to_string(std::max(0LL, (stopDeadline.load() - now()) * 1000 / frequency.QuadPart)) + " ms remaining";
                     status(ip::recording, message);
@@ -840,7 +848,7 @@ DWORD WINAPI worker(void*) {
                 status(ip::ready, "Callback instrumentation ready.");
             }
             ip::processScreenshots();
-            Sleep((pendingStart.load() && startDeadline.load()) || stopDeadline.load() ? 10 : 50);
+            Sleep((pendingStart.load() && startDeadline.load()) || stopDeadline.load() || captureDeadline.load() ? 10 : 50);
         }
     } catch (const std::exception& error) {
         active.store(false); pendingStart.store(false); ip::setScreenshotClock(false, 0, frequency.QuadPart);

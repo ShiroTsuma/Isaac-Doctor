@@ -5,6 +5,7 @@ param(
     [ValidateSet('duration','manual','run-load','room-entry','level-entry','projectile','tear','effect','npc','damage','run-end','game-exit')][string]$StopOn = 'duration',
     [ValidateRange(0,3600000)][int]$StartDelayMs = 0,
     [ValidateRange(0,3600000)][int]$StopDelayMs = 0,
+    [ValidateRange(0,3600000)][int]$MaxDurationMs = 0,
     [switch]$Immediately,
     [switch]$NoPause
 )
@@ -28,7 +29,7 @@ function Invoke-Profiler([string[]]$Arguments) {
     return $text
 }
 try {
-    Show-Message "IsaacProf: $Seconds seconds, minimum $MinimumUs us, screenshots every 500 ms."
+    Show-Message "Isaac Doctor: minimum $MinimumUs us, screenshots every 500 ms."
     $injector = Join-Path $PSScriptRoot 'build\Release\isaacprof-injector.exe'
     if (-not (Test-Path -LiteralPath $injector -PathType Leaf)) { throw 'Profiler build not found. Run build.ps1 first.' }
     $games = @(Get-Process -Name 'isaac-ng' -ErrorAction SilentlyContinue)
@@ -47,18 +48,24 @@ try {
     $recordArguments = @('record', '--pid', "$gameId", '--seconds', "$Seconds", '--trace', '--screenshots', '--screenshot-ms', '500', '--min-us', "$MinimumUs")
     if ($Immediately) { $StartOn = 'immediate' }
     $recordArguments += @('--start-on', $StartOn, '--stop-on', $StopOn, '--start-delay-ms', "$StartDelayMs", '--stop-delay-ms', "$StopDelayMs")
+    $recordArguments += @('--max-duration-ms', "$MaxDurationMs")
     $started = Invoke-Profiler -Arguments $recordArguments
     Show-Message $started
     $report = (($started -split '\r?\n' | Where-Object { $_.StartsWith('Report: ') }) | Select-Object -Last 1)
     if (-not $report) { throw 'Profiler did not return a capture path.' }
     $report = $report.Substring(8).Trim()
-    Show-Message "Start: $StartOn + $StartDelayMs ms; stop: $StopOn + $StopDelayMs ms. Manual Stop remains immediate."
+    if ($StopOn -eq 'manual') { $stopDescription = 'manual Stop; stop delay and Seconds are unused' }
+    elseif ($StopOn -eq 'duration') { $stopDescription = "after $Seconds seconds + $StopDelayMs ms delay" }
+    else { $stopDescription = "on $StopOn + $StopDelayMs ms delay; Seconds is unused" }
+    Show-Message "Start: $StartOn + $StartDelayMs ms; stop: $stopDescription. Manual Stop remains immediate."
+    if ($MaxDurationMs -gt 0) { Show-Message "Independent maximum: $MaxDurationMs ms after recording starts; whichever stop condition comes first." }
+    elseif ($StopOn -ne 'duration') { Show-Message 'No time limit enabled. Stop manually if the event never occurs.' }
     $lastState = ''
     while ($true) {
         Start-Sleep -Milliseconds 500
         $status = Invoke-Profiler -Arguments @('status', '--pid', "$gameId")
         if ($status -match '\| recording \|') {
-            if ($lastState -ne 'recording') { Show-Message "Recording now; automatic stop: $StopOn, delay $StopDelayMs ms."; $lastState = 'recording' }
+            if ($lastState -ne 'recording') { Show-Message "Recording now; stop: $stopDescription."; $lastState = 'recording' }
         } elseif ($status -match '\| armed \|') {
             $lastState = 'armed'
         } elseif ($status -match '\| ready \|') {

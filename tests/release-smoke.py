@@ -114,6 +114,15 @@ try:
         time.sleep(.05)
     else:
         raise AssertionError('Controlled host not ready')
+    command('record', seconds=None, startOn='immediate', stopOn='manual', stopDelayMs=None, maxDurationMs=250, screenshots=False)
+    for _ in range(100):
+        status=request('/api/status')
+        if status['state']=='ready':break
+        time.sleep(.02)
+    else:raise AssertionError('Native maximum did not stop collection')
+    limited=read_capture(status['report'])
+    assert limited['configuration']['maxDurationMs']==250 and limited['configuration']['stopDelayMs']==0
+    assert 230e6 <= limited['duration_ns'] <= 500e6
     command('record', seconds=30, startOn='immediate', stopOn='duration', screenshots=False)
     time.sleep(.4)
     report = request('/api/status')['report']

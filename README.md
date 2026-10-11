@@ -88,6 +88,14 @@ Zoom into individual hooks and nested calls, then rank a selected range in **Bot
 
 Choose **when to start**, **when to stop**, and an independent delay in milliseconds for each. Conditions include a loaded run, room/level entry, projectile/tear/effect/NPC spawn, damage, run end and game exit. You can also start immediately, stop after a duration, or stop manually. The dropdowns show which conditions the connected game exposes.
 
+| Stop mode | When collection ends |
+| --- | --- |
+| **After duration** | After **Record for** seconds plus the stop delay. |
+| **On an event** | After the matching event plus its stop delay. Enable **Maximum duration** to stop even if the event never happens. Whichever happens first wins. |
+| **Manual stop** | When you click **Stop**. There is no implicit 25-second limit. You can enable **Maximum duration** as a separate safety limit. |
+
+Times count from the beginning of collection, after the start condition and start delay. The maximum duration ends collection without an additional stop delay. Empty delay fields mean **0 ms**; the manual mode hides its unused stop delay. For example, **On room entry**, a **500 ms** stop delay and a **25 s maximum** ends 500 ms after the next room entry, or after 25 seconds if that condition has not ended the recording yet.
+
 ![Capture configuration showing channel switches, mod/hook filters and start/stop delays](docs/images/capture-configuration.png)
 
 *Example: select Diepio and CuerLib update/render callbacks, start 250 ms after room entry, and stop after the configured duration plus a 1,000 ms delay.*

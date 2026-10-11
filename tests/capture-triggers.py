@@ -33,7 +33,9 @@ def wait(state):
     raise AssertionError(result)
 
 def event(name):
-    event_file.write_text(name, encoding='ascii')
+    pending_event=event_file.with_suffix('.pending')
+    pending_event.write_text(name, encoding='ascii')
+    pending_event.replace(event_file)
     deadline = time.monotonic() + 2
     while event_file.exists() and time.monotonic() < deadline:
         time.sleep(.002)
@@ -43,7 +45,7 @@ def complete(output):
     path = pathlib.Path(next(line[8:] for line in output.splitlines() if line.startswith('Report: ')))
     reports.append(path)
     doc = read_capture(path)
-    assert doc['complete'] and doc['profiler_version'] == '0.10.0'
+    assert doc['complete'] and doc['profiler_version'] == '0.11.0'
     match = re.fullmatch(r'capture-(\d{4}-\d\d-\d\d)_([\d-]+)Z-pid(\d+)-(\d+)\.isaacprof', path.name)
     assert match and int(match[3]) == host.pid, path.name
     date, hour, minute, second, millis = match[1], *match[2].split('-')
@@ -97,7 +99,25 @@ try:
     run('record', '--trace', '--seconds', '1', '--stop-delay-ms', '120')
     doc = complete(wait('ready'));assert 1100e6 <= doc['duration_ns'] <= 1300e6, doc['duration_ns']
     print('PASS: cancellation during start delay, duration plus stop delay, manual Stop remains immediate')
-    for arguments in [('--start-on','duration'),('--stop-on','immediate'),('--start-delay-ms','-1'),('--stop-delay-ms','1.5'),('--after-load','--start-on','projectile')]:
+    run('record', '--trace', '--seconds', '1', '--stop-on', 'manual')
+    time.sleep(1.15);assert '| recording |' in run('status');doc=complete(run('stop'))
+    assert doc['configuration']['maxDurationMs']==0 and doc['duration_ns']>1e9
+    for stop_on in ['manual','projectile']:
+        run('record','--trace','--stop-on',stop_on,'--stop-delay-ms','5000','--max-duration-ms','250')
+        doc=complete(wait('ready'));assert 230e6 <= doc['duration_ns'] <= 450e6, doc['duration_ns']
+        assert doc['configuration']['version']==2 and doc['configuration']['maxDurationMs']==250
+        assert doc['configuration']['stopDelayMs']==(0 if stop_on=='manual' else 5000)
+    run('record','--trace','--stop-on','projectile','--stop-delay-ms','100','--max-duration-ms','2000')
+    event('projectile');doc=complete(wait('ready'));assert 90e6 <= doc['duration_ns'] <= 350e6
+    run('record','--trace','--stop-on','projectile','--stop-delay-ms','5000','--max-duration-ms','250')
+    event('projectile');doc=complete(wait('ready'));assert 230e6 <= doc['duration_ns'] <= 450e6
+    run('record','--trace','--start-on','projectile','--start-delay-ms','200','--stop-on','manual','--max-duration-ms','250')
+    start=time.monotonic();event('projectile');doc=complete(wait('ready'))
+    assert time.monotonic()-start>=.42 and 230e6 <= doc['duration_ns'] <= 450e6
+    run('record','--trace','--stop-on','manual','--max-duration-ms','2000')
+    time.sleep(.1);doc=complete(run('stop'));assert doc['duration_ns']<1e9
+    print('PASS: manual has no implicit duration; independent maximum stops missing events or long delays; collection-only clock and immediate manual Stop')
+    for arguments in [('--max-duration-ms','-1'),('--max-duration-ms','1.5'),('--max-duration-ms','3600001'),('--start-on','duration'),('--stop-on','immediate'),('--start-delay-ms','-1'),('--stop-delay-ms','1.5'),('--after-load','--start-on','projectile')]:
         run('record', *arguments, success=False)
     print('PASS: invalid/ambiguous trigger configuration rejected')
 finally:

@@ -40,13 +40,17 @@ def control(command, options=None):
         arguments += ['--pid', str(args.pid)]
     if command == 'record':
         values = options or {}
-        seconds, interval = values.get('seconds', 15), values.get('screenshotMs', 500)
+        seconds = values.get('seconds', 25) if values.get('stopOn', 'duration') == 'duration' else 25
+        interval = values.get('screenshotMs', 500)
+        maximum = values.get('maxDurationMs', 0)
+        if type(maximum) is not int or not 0 <= maximum <= 3600000:
+            raise ValueError('Maximum duration must be 0..3600000 ms; 0 disables the limit')
         minimum = values.get('minimumUs', 0)
         if type(minimum) is not int or not 0 <= minimum <= 1000000:
             raise ValueError('Minimum duration must be 0..1000000 microseconds')
         if type(seconds) is not int or not 1 <= seconds <= 3600 or type(interval) is not int or not 250 <= interval <= 10000:
             raise ValueError('Duration must be 1..3600 s; screenshot interval 250..10000 ms')
-        arguments += ['--seconds', str(seconds), '--trace', '--screenshot-ms', str(interval), '--min-us', str(minimum)]
+        arguments += ['--seconds', str(seconds), '--trace', '--screenshot-ms', str(interval), '--min-us', str(minimum), '--max-duration-ms', str(maximum)]
         for key, flag in [('afterLoad', '--after-load'), ('screenshots', '--screenshots')]:
             value = values.get(key, False)
             if type(value) is not bool:
@@ -74,7 +78,7 @@ def control(command, options=None):
                 raise ValueError(f'Invalid {key} trigger')
             arguments += [flag, value]
         for key, flag in [('startDelayMs', '--start-delay-ms'), ('stopDelayMs', '--stop-delay-ms')]:
-            value = values.get(key, 0)
+            value = 0 if key == 'stopDelayMs' and values.get('stopOn') == 'manual' else values.get(key, 0)
             if type(value) is not int or not 0 <= value <= 3600000:
                 raise ValueError(f'{key} must be 0..3600000 ms')
             arguments += [flag, str(value)]

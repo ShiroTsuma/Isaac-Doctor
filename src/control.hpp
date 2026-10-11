@@ -3,7 +3,7 @@
 #include <string>
 
 namespace ip {
-constexpr LONG protocol = 7;
+constexpr LONG protocol = 8;
 enum Channel : LONG { callbacks = 1, timeline = 2, renderFrames = 4, updateFrames = 8, counters = 16, heap = 32, context = 64, markers = 128, overhead = 256, errors = 512, sources = 1024 };
 constexpr LONG allChannels = 2047;
 enum Trigger : LONG { immediate, run_load, room_entry, level_entry, projectile, tear, effect, npc, damage, run_end, game_exit, duration, manual };
@@ -31,6 +31,7 @@ struct Control {
     volatile LONG stopDelayMs;
     volatile LONG availableTriggers;
     volatile LONG channels;
+    volatile LONG maxDurationMs;
     char selectedMods[4096];
     char selectedHooks[4096];
     char catalogJson[131072];
