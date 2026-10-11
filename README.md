@@ -90,7 +90,7 @@ Choose **when to start**, **when to stop**, and an independent delay in millisec
 
 | Stop mode | When collection ends |
 | --- | --- |
-| **After duration** | After **Record for** seconds plus the stop delay. |
+| **After duration** | After **Record for** seconds. This field replaces **Stop delay** beside **Stop when**. |
 | **On an event** | After the matching event plus its stop delay. Enable **Maximum duration** to stop even if the event never happens. Whichever happens first wins. |
 | **Manual stop** | When you click **Stop**. There is no implicit 25-second limit. You can enable **Maximum duration** as a separate safety limit. |
 
@@ -98,7 +98,7 @@ Times count from the beginning of collection, after the start condition and star
 
 ![Capture configuration showing channel switches, mod/hook filters and start/stop delays](docs/images/capture-configuration.png)
 
-*Example: select Diepio and CuerLib update/render callbacks, start 250 ms after room entry, and stop after the configured duration plus a 1,000 ms delay.*
+*Example: select Diepio and CuerLib update/render callbacks, start 250 ms after room entry, and use **After duration → Record for 25 s**.*
 
 - **Channels:** select callback timings, render/update frames, counters, memory, context, markers, errors and other available data. Screenshots have a separate switch.
 - **Mods and hooks:** names load after **Connect game**. Use **Refresh lists** to read them again, select names from the dropdowns, or enter exact names one per line. Empty filters mean all; populated mod and hook filters must both match. Hooks also accept numeric IDs.

@@ -22,6 +22,7 @@ test('empty delays mean zero; manual stop ignores its unused delay and duration 
  assert(validRecordingConfig(base));assert.deepEqual(effectiveRecordingConfig(base),{...base,startDelayMs:0,stopDelayMs:0});
  assert(validRecordingConfig({...base,stopDelayMs:-1}));
  assert(validRecordingConfig({...base,stopOn:'duration',maxDurationMs:NaN}));
+ assert.equal(effectiveRecordingConfig({...base,stopOn:'duration',stopDelayMs:500}).stopDelayMs,0);
  assert(validRecordingConfig({...base,stopOn:'projectile',maxDurationMs:25000}));
  for(const maxDurationMs of [NaN,-1,500,1001,3600001])assert(!validRecordingConfig({...base,maxDurationMs}));
  for(const startDelayMs of [-1,1.5,Infinity])assert(!validRecordingConfig({...base,startDelayMs}));

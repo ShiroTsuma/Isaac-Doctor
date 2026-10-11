@@ -8,7 +8,7 @@ export interface RecordingConfig {startOn:CaptureTrigger;stopOn:CaptureTrigger;s
 const defaults:RecordingConfig={startOn:'run-load',stopOn:'duration',startDelayMs:0,stopDelayMs:0,maxDurationMs:0};
 export function validDelay(value:number){return Number.isInteger(value) && value>=0 && value<=3600000;}
 export function effectiveRecordingConfig(config:RecordingConfig):RecordingConfig{
-  return {...config,startDelayMs:Number.isNaN(config.startDelayMs)?0:config.startDelayMs,stopDelayMs:config.stopOn==='manual' || Number.isNaN(config.stopDelayMs)?0:config.stopDelayMs,maxDurationMs:config.stopOn==='duration'?0:config.maxDurationMs};
+  return {...config,startDelayMs:Number.isNaN(config.startDelayMs)?0:config.startDelayMs,stopDelayMs:config.stopOn==='manual' || config.stopOn==='duration' || Number.isNaN(config.stopDelayMs)?0:config.stopDelayMs,maxDurationMs:config.stopOn==='duration'?0:config.maxDurationMs};
 }
 export function validRecordingConfig(config:RecordingConfig){
   const value=effectiveRecordingConfig(config);
