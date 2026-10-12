@@ -110,6 +110,7 @@ export const channelOptions = [
   [512, 'Lua error context'],
   [1024, 'Source hashes'],
   [2048, 'Presentation / SwapBuffers'],
+  [4096, 'Native Sleep / wait calls'],
 ] as const;
 export interface CaptureScope {
   channels: number;
@@ -117,7 +118,7 @@ export interface CaptureScope {
   selectedHooks: string[];
 }
 export const defaultScope: CaptureScope = {
-  channels: 4095,
+  channels: 8191,
   selectedMods: [],
   selectedHooks: [],
 };
@@ -144,11 +145,11 @@ export function readCaptureScope(): CaptureScope {
         typeof scope.channels === 'number' &&
         Number.isInteger(scope.channels) &&
         scope.channels >= 0 &&
-        scope.channels <= 4095
-          ? scope.channels === 2047
-            ? 4095
+        scope.channels <= 8191
+          ? scope.channels === 2047 || scope.channels === 4095
+            ? 8191
             : scope.channels
-          : 4095,
+          : 8191,
       selectedMods: names('selectedMods'),
       selectedHooks: names('selectedHooks'),
     };

@@ -1289,7 +1289,7 @@ export default function App() {
                 setDurationUnit(next);
               }}
             >
-              <option value="us">?s</option>
+              <option value="us">µs</option>
               <option value="ms">ms</option>
             </select>
           </label>

@@ -1,5 +1,6 @@
 #include "control.hpp"
 #include "lua_api.hpp"
+#include "native_waits.hpp"
 #include "bootstrap.hpp"
 #include "binary.hpp"
 #include "screenshots.hpp"
@@ -514,6 +515,7 @@ void install(lua_State* L) {
         if (result == LUA_OK && api.lua_toboolean(L, -1)) {
             mainState.store(L);
             luaThread.store(GetCurrentThreadId());
+            ip::observeWaitThread(GetCurrentThreadId(), false);
             log("Callback instrumentation installed on Lua thread " + std::to_string(GetCurrentThreadId()));
         } else if (result != LUA_OK) {
             log("Bootstrap failed: " + api.string(L, -1));
@@ -588,6 +590,32 @@ void sendPacket(unsigned type, const std::string& bytes) {
     throw std::runtime_error("Collector metadata queue stalled.");
 }
 void sampleCounters() {
+    std::uint64_t waitsOmitted = 0;
+    const auto waits = ip::drainWaits(waitsOmitted);
+    auxiliaryDropped += waitsOmitted;
+    if (!waits.empty()) sendPacket(ip::waitChunk, std::string(
+        reinterpret_cast<const char*>(waits.data()), waits.size() * sizeof(ip::StreamWait)));
+    static unsigned long long moduleGeneration = 0;
+    static std::set<std::uintptr_t> waitModules;
+    if (moduleGeneration != generation.load()) {
+        waitModules.clear(); moduleGeneration = generation.load();
+    }
+    for (const auto& wait : waits) {
+        MEMORY_BASIC_INFORMATION memory{};
+        if (!VirtualQuery(reinterpret_cast<void*>(static_cast<std::uintptr_t>(wait.caller)), &memory, sizeof(memory)) || memory.Type != MEM_IMAGE) continue;
+        const auto base = reinterpret_cast<std::uintptr_t>(memory.AllocationBase);
+        if (waitModules.contains(base) || waitModules.size() >= 2000) continue;
+        MODULEINFO module{}; wchar_t name[32768]{};
+        const auto handle = static_cast<HMODULE>(memory.AllocationBase);
+        if (!GetModuleInformation(GetCurrentProcess(), handle, &module, sizeof(module)) ||
+            !GetModuleFileNameW(handle, name, 32768)) continue;
+        const auto path = std::filesystem::path(name).u8string();
+        std::ostringstream out(std::ios::binary); ip::Writer writer{out};
+        writer.put<std::uint64_t>(base); writer.put<std::uint64_t>(module.SizeOfImage);
+        writer.string(std::string(reinterpret_cast<const char*>(path.data()), path.size()).substr(0, 32768));
+        sendPacket(ip::nativeModuleChunk, out.str()); waitModules.insert(base);
+    }
+    for (const auto& state : ip::drainRenderStates()) sendPacket(ip::renderStateChunk, state);
     std::uint64_t omitted=0;const auto presentations=ip::drainPresentationSamples(omitted);auxiliaryDropped+=omitted;
     if(!presentations.empty())sendPacket(ip::presentationChunk,std::string(reinterpret_cast<const char*>(presentations.data()),presentations.size()*sizeof(ip::StreamPresentation)));
     ip::StreamCounters sample{}; sample.timestamp = static_cast<unsigned long long>(std::max(0LL, now() - sessionStart.load()));
@@ -660,7 +688,7 @@ void snapshot(bool complete) {
     writer.put<std::uint32_t>(registeredCount.load()); writer.put<std::uint32_t>(savedMetrics.size());
     writer.put<std::uint32_t>(0); writer.put<std::uint32_t>(stream->capacity);
     writer.put<std::uint64_t>(dropped.load()); writer.put<std::uint64_t>(skippedCoroutines.load()); writer.put<std::uint64_t>(hostCalls.load());
-    writer.put<std::uint64_t>(traceDropped.load()); writer.put<std::uint64_t>(traceFiltered.load()); writer.put(ns(minimumTicks)); writer.string("0.11.6");
+    writer.put<std::uint64_t>(traceDropped.load()); writer.put<std::uint64_t>(traceFiltered.load()); writer.put(ns(minimumTicks)); writer.string("0.11.7");
     const auto exeUtf8 = std::filesystem::path(exe).u8string();
     writer.string(std::string(reinterpret_cast<const char*>(exeUtf8.data()), exeUtf8.size())); writer.string(luaModulePath);
     for (const auto& [id, m] : savedMetrics) {
@@ -723,6 +751,7 @@ DWORD WINAPI worker(void*) {
         luaModulePath.assign(reinterpret_cast<const char*>(utf8.data()), utf8.size());
         if (MH_Initialize() != MH_OK) throw std::runtime_error("MinHook initialization failed.");
         ip::installScreenshotHook();
+        ip::installWaitHooks();
         if (MH_CreateHook(reinterpret_cast<void*>(api.lua_pcallk), hookedPcall, reinterpret_cast<void**>(&originalPcall)) != MH_OK ||
             MH_CreateHook(reinterpret_cast<void*>(api.lua_callk), hookedCall, reinterpret_cast<void**>(&originalCall)) != MH_OK ||
             MH_CreateHook(reinterpret_cast<void*>(api.lua_close), hookedClose, reinterpret_cast<void**>(&originalClose)) != MH_OK)
@@ -770,6 +799,7 @@ DWORD WINAPI worker(void*) {
                         startStream(static_cast<size_t>(limit), tracing);
                         ip::configureScreenshots(ip::read(&control->screenshots) != 0, static_cast<unsigned>(screenshotMs));
                         ip::configurePresentation((mask & ip::presentation)!=0);
+                        ip::configureWaits((mask & ip::waits)!=0);
                         {
                             std::lock_guard lock(metricsMutex);
                             channels = mask; selectedMods = mods; selectedHooks = hooks;
@@ -834,9 +864,9 @@ DWORD WINAPI worker(void*) {
                 if (GetTickCount64() >= nextCounters) { sampleCounters(); nextCounters = GetTickCount64() + 250; }
                 const bool maximumReached = captureDeadline.load() && now() >= captureDeadline.load();
                 if (maximumReached || (stopDeadline.load() && now() >= stopDeadline.load())) {
-                    sampleCounters();
                     { std::lock_guard lock(metricsMutex); active.store(false); sessionStop = now(); }
                     ip::setScreenshotClock(false, sessionStart, frequency.QuadPart);
+                    sampleCounters();
                     Sleep(50); ip::processScreenshots(); snapshot(true);
                     startDeadline = 0; stopDeadline = 0; captureDeadline = 0;
                     status(ip::ready, maximumReached ? "Maximum duration reached; report saved." : "Capture complete; report saved.");

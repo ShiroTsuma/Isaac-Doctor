@@ -43,9 +43,10 @@ try:
         time.sleep(.02)
     else:
         raise AssertionError('Host did not become ready')
-    report, doc = record(2048)
+    report, doc = record(2048 | 4096)
     rows = doc['presentation']
-    assert len(rows) > 40, len(rows)
+    # Several sequential 1 ms waits can each last one scheduler quantum.
+    assert len(rows) > 10, len(rows)
     assert not doc['timeline']['events'] and not doc['frame_intervals'] and not doc['screenshots']['images']
     assert max(r['duration_ns'] for r in rows) > 30_000_000, 'Missed controlled outside-Lua engine delay'
     assert max(r['duration_ns'] - r['swap_ns'] - r['readback_ns'] for r in rows) > 30_000_000
@@ -56,12 +57,27 @@ try:
     result = json.loads(cli.stdout)['result']
     assert result['available'] and result['count'] == len(rows) and len(result['rows']) == 5
     assert result['outside']['maximum'] > 30 and result['gaps'] == 0
+    waits = doc['native_waits']
+    assert any(r['kind'] == 1 and r['requested_ms'] == 35 and r['duration_ns'] > 30_000_000 for r in waits), 'Controlled sleep was not captured'
+    assert set(r['kind'] for r in waits) == {1, 2, 3, 4, 5, 6}, 'Missing native wait API coverage'
+    assert all(r['result'] == 258 for r in waits if r['kind'] >= 3 and r['requested_ms'] == 1), 'Changed timeout result'
+    assert doc['render_states'] and doc['render_states'][0]['viewport'][2:] == [640, 360]
+    assert doc['render_states'][0]['wait_hooks'] == 63
+    assert result['waits']['count'] == len(waits) and result['renderStates'][0]['width'] == 640
+    assert any('isaacprof-test-host.exe+0x' in r['callSite'] for r in result['waits']['callers']), 'Wait caller module was not resolved'
+    wait_cli = subprocess.run(['node', 'viewer/scripts/analyze.mts', 'waits', str(report), '--top', '5', '--non-interactive'], cwd=root, capture_output=True, text=True, check=True, timeout=30)
+    assert json.loads(wait_cli.stdout)['result']['count'] == len(waits)
     _, off = record(0)
     assert not off['presentation'], 'Disabled presentation channel still emitted data'
+    assert not off['native_waits'] and not off['render_states']
+    _, waits_only = record(4096)
+    assert waits_only['native_waits'], 'Wait channel incorrectly depends on presentation'
+    assert not waits_only['presentation'] and not waits_only['render_states']
     _, second = record(2048, screenshots=True)
     assert second['presentation'][0]['id'] == 1 and second['screenshots']['images'], 'Session reset or separate screenshot option failed'
+    assert not second['native_waits'], 'Disabled waits still emitted data'
     assert host.poll() is None, 'Hook altered owned GL host state'
-    print('PASS: presentation-only capture observes outside-Lua delay, reads in Python/TS CLI, preserves GL state, resets between sessions, respects channel-off and independent screenshots')
+    print('PASS: six wait APIs and controlled delay captured with module offsets; Python/TS agree; Windows results and GL state preserved; reset, independent channels and screenshots verified')
 finally:
     if host.poll() is None:
         host.terminate()

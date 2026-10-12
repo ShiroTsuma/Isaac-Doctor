@@ -14,6 +14,7 @@ struct ScreenshotSnapshot {
 void installScreenshotHook();
 void configureScreenshots(bool enabled, unsigned intervalMs);
 void configurePresentation(bool enabled);
+std::vector<std::string> drainRenderStates();
 std::vector<StreamPresentation> drainPresentationSamples(std::uint64_t& omitted);
 void setScreenshotClock(bool recording, long long start, long long frequency);
 void processScreenshots();

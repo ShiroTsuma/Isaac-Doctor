@@ -74,6 +74,16 @@ Open **Frames**, choose Render or Update, and sort by wall time. Inspect the ret
 
 If a slow interval has little extra Lua work, choose **Frames → Presentation**. The independent **Presentation / SwapBuffers** capture channel measures time between swap returns, time inside `SwapBuffers`, and screenshot-hook cost. Add a presentation timing graph to compare spikes across the same range. These measurements help separate callback costs from delays elsewhere; they do not identify a GPU bottleneck or measure time on the display.
 
+Enable **Native Sleep / wait calls** to inspect explicit Windows waits on the observed Lua and rendering threads. **Frames → Presentation** shows the six covered APIs, requested timeouts, observed wall durations and call sites as `module+offset`. Click a wait to select its exact span, or add the **Native Sleep / waits (ms)** graph alongside presentation timing. A 1 ms requested timeout can have a longer observed duration. Wait spans can overlap callbacks and `SwapBuffers`; do not add these times together.
+
+The presentation panel also records window size, OpenGL viewport, renderer and swap interval when available. Missing wait records do not rule out scheduling delays, other waiting APIs or GPU work. For a lightweight control recording, disable callback aggregates and timeline while retaining presentation, native waits, frame intervals, room context and process counters. Compare the same room after startup menus close.
+
+The source CLI exposes the same analysis without opening the browser:
+
+```powershell
+pnpm --dir viewer analyze waits "path/to/capture.isaacprof" --start-ms 2500 --end-ms 6000 --top 20 --non-interactive
+```
+
 ![Slow render intervals with wall time, callback self time and costliest callbacks](docs/images/slow-frames.png)
 
 ### Put a spike in context

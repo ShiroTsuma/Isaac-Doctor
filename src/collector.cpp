@@ -88,19 +88,34 @@ int wmain(int argc, wchar_t** argv) {
             while (pr != pw) {
                 const auto& p = shared->packets[pr % ip::packetSlots];
                 if (p.size > ip::packetBytes) throw std::runtime_error("Invalid producer packet size.");
-                const bool counter = p.type == ip::countersChunk || p.type == ip::contextChunk || p.type == ip::overheadChunk || p.type == ip::errorChunk;
+                const bool counter = p.type == ip::countersChunk || p.type == ip::contextChunk || p.type == ip::overheadChunk || p.type == ip::errorChunk || p.type == ip::renderStateChunk;
                 if ((p.type == ip::countersChunk && p.size != sizeof(ip::StreamCounters)) ||
                     (p.type == ip::presentationChunk && (!p.size || p.size % sizeof(ip::StreamPresentation) || p.size / sizeof(ip::StreamPresentation)>2048)) ||
+                    (p.type == ip::waitChunk && (!p.size || p.size % sizeof(ip::StreamWait) || p.size / sizeof(ip::StreamWait)>4096)) ||
+                    (p.type == ip::renderStateChunk && (p.size < 60 || p.size > 3200)) ||
+                    (p.type == ip::nativeModuleChunk && (p.size < 20 || p.size > 32788)) ||
                     (p.type == ip::contextChunk && p.size != sizeof(ip::StreamContext)) ||
                     (p.type == ip::overheadChunk && p.size != sizeof(ip::StreamOverhead)) ||
                     (p.type == ip::errorChunk && (p.size < 32 || p.size > 20600))) throw std::runtime_error("Invalid diagnostic packet.");
                 std::uint64_t timestamp = 0; if (counter) memcpy(&timestamp, p.bytes.data(), sizeof(timestamp));
                 std::uint64_t maximum=timestamp;std::uint32_t count=counter?1u:0u;
+                if (p.type == ip::nativeModuleChunk) count = 1;
                 if(p.type==ip::presentationChunk){
                     count=p.size/sizeof(ip::StreamPresentation);timestamp=~0ULL;maximum=0;
                     for(std::uint32_t i=0;i<count;++i){ip::StreamPresentation sample{};memcpy(&sample,p.bytes.data()+i*sizeof(sample),sizeof(sample));
                         if(!sample.id || !sample.duration || sample.start+sample.duration<sample.start)throw std::runtime_error("Invalid presentation interval.");
                         timestamp=std::min(timestamp,sample.start);maximum=std::max(maximum,sample.start+sample.duration);}
+                }
+                if (p.type == ip::waitChunk) {
+                    count = p.size / sizeof(ip::StreamWait); timestamp = ~0ULL; maximum = 0;
+                    for (std::uint32_t i = 0; i < count; ++i) {
+                        ip::StreamWait sample{};
+                        memcpy(&sample, p.bytes.data() + i * sizeof(sample), sizeof(sample));
+                        if (!sample.duration || !sample.thread || sample.kind < 1 || sample.kind > 6 ||
+                            sample.start + sample.duration < sample.start) throw std::runtime_error("Invalid native wait.");
+                        timestamp = std::min(timestamp, sample.start);
+                        maximum = std::max(maximum, sample.start + sample.duration);
+                    }
                 }
                 index.push_back(ip::writeChunk(out, sequence++, static_cast<std::uint16_t>(p.type), p.bytes.data(), p.size, count, timestamp, maximum));
                 InterlockedExchange(&shared->packetRead, static_cast<LONG>(++pr));

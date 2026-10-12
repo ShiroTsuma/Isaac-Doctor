@@ -30,6 +30,7 @@ const options: [Kind, string][] = [
   ['render-percentiles', 'Render interval percentiles'],
   ['fps', 'FPS + percentiles'],
   ['presentation-ms', 'Presentation / SwapBuffers (ms)'],
+  ['waits-ms', 'Native Sleep / waits (ms)'],
   ['update-ms', 'Update interval (ms)'],
   ['update-percentiles', 'Update interval percentiles'],
   ['ups', 'UPS + percentiles'],

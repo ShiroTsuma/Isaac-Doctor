@@ -1,6 +1,7 @@
 import type { StreamCapture } from './stream.ts';
 import type { FrameInterval } from './types.ts';
 export type GraphKind =
+  | 'waits-ms'
   | 'presentation-ms'
   | 'render-ms'
   | 'render-percentiles'
@@ -183,6 +184,46 @@ export async function graphCapture(
       frame?: FrameInterval;
     }
   >();
+  if (kind === 'waits-ms') {
+    const series: GraphSeries[] = [
+      {
+        key: 'sleep',
+        label: 'Sleep / SleepEx wall',
+        color: '#81c995',
+        points: [],
+      },
+      {
+        key: 'wait',
+        label: 'Object wait API wall',
+        color: '#ffad66',
+        points: [],
+      },
+    ];
+    const peaks = series.map(() => new Map<number, GraphPoint>());
+    let count = 0;
+    for await (const row of stream.waits(start, end)) {
+      count++;
+      const time = Math.min(end, row.start + row.duration);
+      const index = row.kind <= 2 ? 0 : 1;
+      const key = bucket(time);
+      const previous = peaks[index].get(key);
+      if (!previous || previous.value < row.duration) {
+        peaks[index].set(key, { time, value: row.duration });
+      }
+    }
+    for (let i = 0; i < series.length; i++) {
+      series[i].points = [...peaks[i].values()].sort((a, b) => a.time - b.time);
+    }
+    return {
+      points: series[0].points,
+      series,
+      unit: 'ms',
+      label: 'Native Sleep / waits',
+      count,
+      aggregation:
+        'Longest observed API span per display bucket; may overlap callbacks or swap, not total scheduler wait time',
+    };
+  }
   if (kind === 'presentation-ms') {
     const series: GraphSeries[] = [
       {

@@ -1,4 +1,5 @@
 dofile('tests/trigger-scenario.lua')
+TestNativeWaits = true
 local tick=TestTick
 local count=0
 function TestTick()

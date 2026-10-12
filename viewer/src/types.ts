@@ -163,6 +163,27 @@ export interface PresentationSample {
   swapCycles: number | null;
   success: boolean;
 }
+export interface NativeWait {
+  start: number;
+  duration: number;
+  caller: string;
+  requestedMs: number;
+  thread: number;
+  kind: number;
+  result: number;
+}
+export interface RenderState {
+  time: number;
+  thread: number;
+  width: number;
+  height: number;
+  viewport: number[];
+  swapInterval: number | null;
+  waitHooks: number;
+  vendor: string;
+  renderer: string;
+  version: string;
+}
 export interface Telemetry {
   counters: CounterSample[];
   heap: HeapSample[];

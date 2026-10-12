@@ -3,6 +3,9 @@ import SortableHeader from './SortableHeader.tsx';
 import { count, ms } from './trace.ts';
 import type { LoadedTrace, WorkerClient } from './types.ts';
 import type { PresentationResult, PresentationSort } from './presentation.ts';
+import { waitNames } from './native-waits.ts';
+
+type WaitSort = 'start' | 'kind' | 'duration' | 'requestedMs' | 'callSite';
 
 export default function PresentationFrames({
   data,
@@ -19,6 +22,8 @@ export default function PresentationFrames({
 }) {
   const [sort, setSort] = useState<PresentationSort>('duration');
   const [descending, setDescending] = useState(true);
+  const [waitSort, setWaitSort] = useState<WaitSort>('duration');
+  const [waitDescending, setWaitDescending] = useState(true);
   const [state, setState] = useState<{
     data: LoadedTrace;
     key: string;
@@ -81,7 +86,7 @@ export default function PresentationFrames({
       ) : (
         result && (
           <>
-            {!result.available ? (
+            {!result.available && !result.waits.available ? (
               <div className="frame-note">
                 Presentation measurements were not recorded in this file. Enable
                 “Presentation / SwapBuffers” in capture scope for the next
@@ -89,6 +94,12 @@ export default function PresentationFrames({
               </div>
             ) : (
               <>
+                {!result.available && (
+                  <div className="frame-note">
+                    Presentation intervals were not recorded. Native waits below
+                    remain available independently.
+                  </div>
+                )}
                 <div className="frame-stats">
                   {[
                     ['Intervals', count(result.count)],
@@ -114,7 +125,152 @@ export default function PresentationFrames({
                   ))}
                 </div>
                 <div className="analysis-table-scroll">
-                  <table>
+                  <section
+                    className="pattern-guidance"
+                    aria-label="Rendering state"
+                  >
+                    <h3>Rendering state</h3>
+                    {!result.renderStates.length ? (
+                      <p>No rendering state was recorded.</p>
+                    ) : (
+                      result.renderStates.map((state) => (
+                        <p key={`${state.time}:${state.thread}`}>
+                          {ms(state.time)} · {state.renderer} / {state.vendor} ·
+                          OpenGL {state.version}
+                          <br />
+                          Window {state.width} × {state.height} · Viewport{' '}
+                          {state.viewport.join(', ')} · Swap interval{' '}
+                          {state.swapInterval === null
+                            ? 'unavailable'
+                            : state.swapInterval}{' '}
+                          · Wait hooks{' '}
+                          {state.waitHooks.toString(2).split('1').length - 1}/6
+                        </p>
+                      ))
+                    )}
+                  </section>
+                  <section
+                    className="pattern-guidance"
+                    aria-label="Native waits"
+                  >
+                    <h3>Native Sleep / wait calls</h3>
+                    {!result.waits.available ? (
+                      <p>
+                        Enable Native Sleep / wait calls in Capture scope for
+                        the next recording.
+                      </p>
+                    ) : (
+                      <>
+                        <p>
+                          {count(result.waits.count)} observed calls ·{' '}
+                          {ms(result.waits.wall)} clipped API wall time.{' '}
+                          {result.waits.count === 0
+                            ? 'No calls to the covered APIs were observed; this does not establish that the thread never waited.'
+                            : ''}
+                        </p>
+                        <p>{result.waits.limitation}</p>
+                        {result.waits.groups.map((group) => (
+                          <p key={group.api}>
+                            {group.api}: {count(group.count)} calls ·{' '}
+                            {ms(group.wall)} wall · {ms(group.maximum)} longest
+                          </p>
+                        ))}
+                        <details>
+                          <summary>Call sites and longest waits</summary>
+                          {result.waits.callers.map((caller) => (
+                            <p
+                              key={`${caller.thread}:${caller.api}:${caller.caller}`}
+                            >
+                              {caller.api} · {caller.callSite} · thread{' '}
+                              {caller.thread}: {count(caller.count)} calls,{' '}
+                              {ms(caller.wall)}
+                            </p>
+                          ))}
+                          <p>
+                            Longest {result.waits.rows.length} waits; sorting
+                            applies to this retained list.
+                          </p>
+                          <table id="native-waits-table">
+                            <SortableHeader
+                              columns={(
+                                [
+                                  ['start', 'Start'],
+                                  ['kind', 'API'],
+                                  ['duration', 'Observed wall'],
+                                  ['requestedMs', 'Requested timeout'],
+                                  ['callSite', 'Result / caller'],
+                                ] as [WaitSort, string][]
+                              ).map(([key, label]) => ({ key, label }))}
+                              sort={waitSort}
+                              descending={waitDescending}
+                              onSort={(value) => {
+                                if (value === waitSort) {
+                                  setWaitDescending(!waitDescending);
+                                } else {
+                                  setWaitSort(value);
+                                  setWaitDescending(value === 'duration');
+                                }
+                              }}
+                            />
+                            <tbody>
+                              {[...result.waits.rows]
+                                .sort((a, b) => {
+                                  const left =
+                                    waitSort === 'kind'
+                                      ? waitNames[a.kind]
+                                      : a[waitSort];
+                                  const right =
+                                    waitSort === 'kind'
+                                      ? waitNames[b.kind]
+                                      : b[waitSort];
+                                  const comparison =
+                                    typeof left === 'string' &&
+                                    typeof right === 'string'
+                                      ? left.localeCompare(right)
+                                      : Number(left) - Number(right);
+                                  return (
+                                    (waitDescending
+                                      ? -comparison
+                                      : comparison) || a.start - b.start
+                                  );
+                                })
+                                .map((row, index) => (
+                                  <tr
+                                    key={`${row.thread}:${row.start}:${index}`}
+                                  >
+                                    <td>
+                                      <button
+                                        className="row-button"
+                                        onClick={() =>
+                                          setRange([
+                                            row.start,
+                                            row.start + row.duration,
+                                          ])
+                                        }
+                                      >
+                                        {ms(row.start)}
+                                      </button>
+                                    </td>
+                                    <td>{waitNames[row.kind]}</td>
+                                    <td>{ms(row.duration)}</td>
+                                    <td>
+                                      {row.requestedMs === 4294967295
+                                        ? 'Infinite'
+                                        : `${row.requestedMs} ms`}
+                                    </td>
+                                    <td>
+                                      0x{row.result.toString(16)} ·{' '}
+                                      {row.callSite}
+                                    </td>
+                                  </tr>
+                                ))}
+                            </tbody>
+                          </table>
+                        </details>
+                      </>
+                    )}
+                  </section>
+                  <table id="presentation-table">
                     <SortableHeader
                       columns={(
                         [

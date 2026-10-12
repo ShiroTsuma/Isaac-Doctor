@@ -10,6 +10,8 @@ import type {
   CaptureInventory,
   RunMarker,
   PresentationSample,
+  NativeWait,
+  RenderState,
 } from './types.ts';
 import {
   rangePlan,
@@ -94,6 +96,7 @@ export class StreamCapture {
   eventIndex = new TimeIndex<Block>([]);
   intervalIndex = new TimeIndex<Block>([]);
   presentationIndex = new TimeIndex<Block>([]);
+  waitIndex = new TimeIndex<Block>([]);
   cancelled = () => false;
   onProgress: (progress: ProcessingProgress) => void = () => {};
   private progress(stage: string, total: number) {
@@ -592,7 +595,7 @@ export class StreamCapture {
     let maximum = 0;
     for (let i = 0; i < this.blocks.length; i++) {
       const b = this.blocks[i];
-      if (b.type <= 16 && b.version !== 1) {
+      if (b.type <= 19 && b.version !== 1) {
         throw Error('Unsupported required block version.');
       }
       if (
@@ -600,6 +603,18 @@ export class StreamCapture {
         (b.bytes !== b.count * 80 || !b.count || b.count > 2048)
       ) {
         throw Error('Invalid presentation chunk.');
+      }
+      if (
+        b.type === 17 &&
+        (b.bytes !== b.count * 40 || !b.count || b.count > 4096)
+      ) {
+        throw Error('Invalid native wait chunk.');
+      }
+      if (b.type === 18 && (b.count !== 1 || b.bytes < 60 || b.bytes > 3200)) {
+        throw Error('Invalid render state chunk.');
+      }
+      if (b.type === 19 && (b.count !== 1 || b.bytes < 20 || b.bytes > 32788)) {
+        throw Error('Invalid native module chunk.');
       }
       if (
         (b.type === 12 || b.type === 13) &&
@@ -694,7 +709,7 @@ export class StreamCapture {
           selectedHooks: names(),
         };
         if (
-          config.channels > 4095 ||
+          config.channels > 8191 ||
           config.startOn > 10 ||
           config.stopOn < 1 ||
           config.stopOn > 12 ||
@@ -763,6 +778,7 @@ export class StreamCapture {
     this.presentationIndex = new TimeIndex(
       this.blocks.filter((b) => b.type === 16),
     );
+    this.waitIndex = new TimeIndex(this.blocks.filter((b) => b.type === 17));
     this.document.duration_ns = this.duration * 1e6;
     this.captureKey = `${header.getUint32(16, true)}:${header.getBigUint64(32, true)}:${this.sourceSize}:${this.indexCRC}`;
     if (location && finalized) {
@@ -1062,6 +1078,143 @@ export class StreamCapture {
         }
       }
       progress(++completed);
+    }
+  }
+
+  async nativeModules() {
+    const modules: { base: bigint; size: bigint; path: string }[] = [];
+    for (const block of this.blocks.filter((b) => b.type === 19)) {
+      if (this.cancelled()) {
+        throw new Superseded();
+      }
+      const v = new DataView(await this.payload(block));
+      const base = v.getBigUint64(0, true);
+      const size = v.getBigUint64(8, true);
+      const length = v.getUint32(16, true);
+      if (
+        !base ||
+        !size ||
+        base + size > 0x100000000n ||
+        length > 32768 ||
+        20 + length !== v.byteLength
+      ) {
+        throw Error('Invalid native module payload.');
+      }
+      modules.push({
+        base,
+        size,
+        path: new TextDecoder().decode(
+          new Uint8Array(v.buffer, v.byteOffset + 20, length),
+        ),
+      });
+      if (modules.length > 2000) {
+        throw Error('Too many native modules.');
+      }
+    }
+    return modules;
+  }
+
+  async renderStates(end = this.duration): Promise<RenderState[]> {
+    const result: RenderState[] = [];
+    for (const block of this.blocks.filter((b) => b.type === 18)) {
+      if (this.cancelled()) {
+        throw new Superseded();
+      }
+      const v = new DataView(await this.payload(block));
+      const time = (integer(v, 0) / this.frequency) * 1000;
+      const flags = v.getUint32(40, true);
+      const hooks = v.getUint32(44, true);
+      if (!v.getUint32(8, true) || flags > 3 || hooks > 63) {
+        throw Error('Invalid render state flags.');
+      }
+      let p = 48;
+      const text = () => {
+        if (p + 4 > v.byteLength) {
+          throw Error('Truncated render state.');
+        }
+        const n = v.getUint32(p, true);
+        p += 4;
+        if (n > 1024 || p + n > v.byteLength) {
+          throw Error('Invalid GL string.');
+        }
+        const value = new TextDecoder().decode(
+          new Uint8Array(v.buffer, v.byteOffset + p, n),
+        );
+        p += n;
+        return value;
+      };
+      const state: RenderState = {
+        time,
+        thread: v.getUint32(8, true),
+        width: v.getUint32(12, true),
+        height: v.getUint32(16, true),
+        viewport: [20, 24, 28, 32].map((at) => v.getInt32(at, true)),
+        swapInterval: flags & 2 ? v.getInt32(36, true) : null,
+        waitHooks: hooks,
+        vendor: text(),
+        renderer: text(),
+        version: text(),
+      };
+      if (p !== v.byteLength || time < 0 || time > this.duration + 0.001) {
+        throw Error('Invalid render state payload.');
+      }
+      if (time <= end) {
+        result.push(state);
+      }
+      if (result.length > 10000) {
+        throw Error('Too many render state changes.');
+      }
+    }
+    return result.sort((a, b) => a.time - b.time);
+  }
+
+  async *waits(start: number, end: number): AsyncGenerator<NativeWait> {
+    const blocks = this.waitIndex.query(
+      (start * this.frequency) / 1000,
+      (end * this.frequency) / 1000,
+    );
+    let yielded = performance.now();
+    for (const block of blocks) {
+      if (this.cancelled()) {
+        throw new Superseded();
+      }
+      const v = new DataView(await this.payload(block));
+      for (let p = 0; p < block.bytes; p += 40) {
+        const ticks = integer(v, p);
+        const duration = integer(v, p + 8);
+        const thread = v.getUint32(p + 28, true);
+        const kind = v.getUint32(p + 32, true);
+        if (
+          !thread ||
+          !duration ||
+          kind < 1 ||
+          kind > 6 ||
+          ticks < block.minimum ||
+          ticks + duration > block.maximum
+        ) {
+          throw Error('Invalid native wait record.');
+        }
+        const time = (ticks / this.frequency) * 1000;
+        const ms = (duration / this.frequency) * 1000;
+        if (time < end && time + ms > start) {
+          yield {
+            start: time,
+            duration: ms,
+            caller: '0x' + v.getBigUint64(p + 16, true).toString(16),
+            requestedMs: v.getUint32(p + 24, true),
+            thread,
+            kind,
+            result: v.getUint32(p + 36, true),
+          };
+        }
+        if (performance.now() - yielded > 8) {
+          await yieldTask();
+          yielded = performance.now();
+          if (this.cancelled()) {
+            throw new Superseded();
+          }
+        }
+      }
     }
   }
 

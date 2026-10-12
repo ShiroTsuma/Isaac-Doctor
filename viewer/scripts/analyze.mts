@@ -1,5 +1,6 @@
 import { frameDetail } from '../src/frame-detail.ts';
 import { presentationCapture } from '../src/presentation.ts';
+import { nativeWaitCapture } from '../src/native-waits.ts';
 import type { FrameCost } from '../src/frame-detail.ts';
 import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -48,6 +49,7 @@ const commands = [
   'markers',
   'telemetry',
   'presentation',
+  'waits',
   'source',
   'screenshots',
   'screenshot',
@@ -115,6 +117,7 @@ const allowed: Record<Command, string[]> = {
   markers: [...range, '--top'],
   telemetry: [...range, '--samples', '--top'],
   presentation: [...range, ...ranking],
+  waits: [...range, '--top'],
   source: ['--metric', '--mods', '--source-file', '--before', '--after'],
   screenshots: [...range, '--top'],
   screenshot: ['--index', '--output'],
@@ -132,7 +135,8 @@ Commands: ${commands.join(', ')}
   rank             Mod -> hook -> function rankings; native totals or retained range
   events/tree      Exact retained calls and ancestry (select a range for large traces)
   frames/summary   Slowest 500 intervals / FPS, UPS and percentiles
-  presentation    SwapBuffers intervals, wall-time boundaries and raw thread cycles
+  presentation    SwapBuffers intervals, render state and native waits
+  waits           Native Sleep/wait spans, APIs and call-site rankings
   frame --id N     Matched reference comparison and callback breakdown of one interval
   source           Lua context: --metric ID --mods FOLDER [--source-file FILE]
   screenshots      Screenshot timestamps/dimensions; screenshot exports one PNG
@@ -487,6 +491,9 @@ function wireEvent(event: TraceEvent, stream: StreamCapture) {
 }
 
 const channelNames: Record<number, string> = {
+  17: 'native_waits',
+  18: 'render_state',
+  19: 'native_modules',
   16: 'presentation',
   1: 'aggregate_snapshots',
   2: 'callbacks',
@@ -1039,6 +1046,8 @@ async function execute(
         identity: 'observed_transition_ordinals_not_game_ids',
       };
     }
+    case 'waits':
+      return nativeWaitCapture(stream, q.start, q.end, options.top);
     case 'presentation': {
       const sort = choice(
         options.sort || 'duration',

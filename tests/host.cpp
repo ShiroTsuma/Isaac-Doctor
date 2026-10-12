@@ -46,6 +46,22 @@ int main(int argc, char** argv) {
             lua_getglobal(L,"TestBeforeSwapDelayMs");
             const auto delay=lua_tointeger(L,-1);lua_pop(L,1);
             if(delay>0 && delay<=100)Sleep(static_cast<DWORD>(delay));
+            lua_getglobal(L, "TestNativeWaits");
+            const bool testWaits = lua_toboolean(L, -1) != 0;
+            lua_pop(L, 1);
+            if (testWaits) {
+                static HANDLE event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+                if (SleepEx(1, TRUE) != 0 ||
+                    WaitForSingleObject(event, 1) != WAIT_TIMEOUT ||
+                    WaitForSingleObjectEx(event, 1, FALSE) != WAIT_TIMEOUT ||
+                    WaitForMultipleObjects(1, &event, FALSE, 1) != WAIT_TIMEOUT ||
+                    WaitForMultipleObjectsEx(1, &event, FALSE, 1, FALSE) != WAIT_TIMEOUT ||
+                    WaitForSingleObject(nullptr, 0) != WAIT_FAILED ||
+                    GetLastError() != ERROR_INVALID_HANDLE) {
+                    std::cerr << "Native wait hook changed return/error semantics\n";
+                    return 4;
+                }
+            }
             glViewport(0,0,640,360);glDisable(GL_SCISSOR_TEST);glClearColor(0,0,1,1);glClear(GL_COLOR_BUFFER_BIT);
             glEnable(GL_SCISSOR_TEST);glScissor(0,0,640,180);glClearColor(1,0,0,1);glClear(GL_COLOR_BUFFER_BIT);glDisable(GL_SCISSOR_TEST);
             SwapBuffers(dc);

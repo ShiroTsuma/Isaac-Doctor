@@ -1,5 +1,7 @@
 import type { StreamCapture } from './stream.ts';
 import type { PresentationSample } from './types.ts';
+import type { RenderState } from './types.ts';
+import { nativeWaitCapture } from './native-waits.ts';
 
 export type PresentationSort =
   'start' | 'duration' | 'swap' | 'readback' | 'outside' | 'cycles';
@@ -22,6 +24,8 @@ export interface TimingStats {
   p99: number;
 }
 export interface PresentationResult {
+  waits: Awaited<ReturnType<typeof nativeWaitCapture>>;
+  renderStates: RenderState[];
   available: boolean;
   count: number;
   failed: number;
@@ -159,6 +163,8 @@ export async function presentationCapture(
   rows.length = Math.min(rows.length, limit);
   const stats = interval.result();
   return {
+    waits: await nativeWaitCapture(stream, query.start, query.end, limit),
+    renderStates: await stream.renderStates(query.end),
     available: stream.blocks.some((b) => b.type === 16),
     count,
     failed,

@@ -9,13 +9,13 @@ def decode_stream(data):
     frequency=struct.unpack_from('<Q',data,24)[0]
     if not frequency: raise ValueError('Invalid QPC frequency')
     index_offset=index_size=index_end=-1
-    offset=40; metadata=None; events=[]; shots=[]; intervals=[]; counters=[];heap=[];markers=[];inventory=[];context=[];overhead=[];errors=[];presentation=[];configuration=None;finalized=False
+    offset=40; metadata=None; events=[]; shots=[]; intervals=[]; counters=[];heap=[];markers=[];inventory=[];context=[];overhead=[];errors=[];presentation=[];waits=[];render_states=[];configuration=None;finalized=False
     while offset+8<=len(data):
         if data[offset:offset+8]==b'IPEND003':
             finalized=offset+32<=len(data) and index_end==offset and struct.unpack_from('<QI',data,offset+8)==(index_offset,index_size);break
         if offset+48>len(data): break
         magic,kind,version,size,count,sequence,minimum,maximum,crc,flags=struct.unpack_from('<IHHIIQQQII',data,offset)
-        if magic!=0x4b4e4843 or size>64*1024*1024 or (kind<=16 and version!=1): raise ValueError('Invalid stream block')
+        if magic!=0x4b4e4843 or size>64*1024*1024 or (kind<=19 and version!=1): raise ValueError('Invalid stream block')
         offset+=48
         if offset+size>len(data): break
         payload=data[offset:offset+size];offset+=size
@@ -68,6 +68,28 @@ def decode_stream(data):
                 presentation.append(dict(id=ident,thread=thread,start_ns=start*1e9/frequency,duration_ns=length*1e9/frequency,
                     swap_start_ns=swap_start*1e9/frequency,swap_ns=swap*1e9/frequency,readback_start_ns=readback_start*1e9/frequency,readback_ns=readback*1e9/frequency,
                     cycles=cycles if flags&1 else None,swap_cycles=swap_cycles if flags&2 else None,success=bool(flags&4)))
+        elif kind==17:
+            if size!=count*40 or not 1<=count<=4096:raise ValueError('Invalid native wait block')
+            for p in range(0,size,40):
+                start,length,caller,requested,thread,api,result=struct.unpack_from('<QQQIIII',payload,p)
+                if not length or not thread or not 1<=api<=6 or start<minimum or start+length>maximum:raise ValueError('Invalid native wait span')
+                waits.append(dict(start_ns=start*1e9/frequency,duration_ns=length*1e9/frequency,caller=hex(caller),requested_ms=requested,thread=thread,kind=api,result=result))
+        elif kind==18:
+            if count!=1 or not 60<=size<=3200:raise ValueError('Invalid render state block')
+            values=struct.unpack_from('<QIIIiiiiiII',payload)
+            if not values[1] or values[-2]>3 or values[-1]>63:raise ValueError('Invalid render state flags')
+            cursor=48;strings=[]
+            for _ in range(3):
+                if cursor+4>size:raise ValueError('Truncated GL string')
+                n=struct.unpack_from('<I',payload,cursor)[0];cursor+=4
+                if n>1024 or cursor+n>size:raise ValueError('Invalid GL string')
+                strings.append(payload[cursor:cursor+n].decode('utf-8',errors='replace'));cursor+=n
+            if cursor!=size:raise ValueError('Trailing render state bytes')
+            render_states.append(dict(time_ns=values[0]*1e9/frequency,thread=values[1],width=values[2],height=values[3],viewport=list(values[4:8]),swap_interval=values[8] if values[9]&2 else None,wait_hooks=values[10],vendor=strings[0],renderer=strings[1],version=strings[2]))
+        elif kind==19:
+            if count!=1 or not 20<=size<=32788:raise ValueError('Invalid native module block')
+            base,image_size,n=struct.unpack_from('<QQI',payload)
+            if not base or not image_size or base+image_size>2**32 or n>32768 or size!=20+n:raise ValueError('Invalid native module payload')
         elif kind==15:
             cursor=0
             def number():
@@ -88,7 +110,7 @@ def decode_stream(data):
             if configuration['version'] not in (1,2):raise ValueError('Unsupported capture configuration version')
             configuration['maxDurationMs']=number() if configuration['version']==2 else 0
             configuration.update(selectedMods=names(),selectedHooks=names())
-            if configuration['channels']>4095 or configuration['startOn']>10 or not 1<=configuration['stopOn']<=12 or max(configuration['startDelayMs'],configuration['stopDelayMs'],configuration['maxDurationMs'])>3600000 or cursor!=size:raise ValueError('Invalid capture configuration')
+            if configuration['channels']>8191 or configuration['startOn']>10 or not 1<=configuration['stopOn']<=12 or max(configuration['startDelayMs'],configuration['stopDelayMs'],configuration['maxDurationMs'])>3600000 or cursor!=size:raise ValueError('Invalid capture configuration')
         elif kind==11:
             cursor=4
             def string():
@@ -110,6 +132,7 @@ def decode_stream(data):
     metadata['binary_version']=3;metadata['complete']=metadata['complete'] and finalized
     metadata['frame_intervals']=intervals
     metadata['presentation']=presentation
+    metadata['native_waits']=waits;metadata['render_states']=render_states
     events.sort(key=lambda e:(e[1],e[4]));metadata['timeline']['events']=events;metadata['screenshots']['images']=shots
     metadata['duration_ns']=max(metadata['duration_ns'],max((e[1]+e[2] for e in events),default=0))
     return metadata

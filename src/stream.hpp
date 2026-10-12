@@ -16,6 +16,13 @@ struct StreamPresentation {
     std::uint32_t thread, flags;
 };
 static_assert(sizeof(StreamPresentation) == 80);
+struct StreamWait {
+    std::uint64_t start, duration, caller;
+    std::uint32_t requestedMs, thread, kind, result;
+};
+static_assert(sizeof(StreamWait) == 40);
+constexpr unsigned waitChunk = 17, renderStateChunk = 18;
+constexpr unsigned nativeModuleChunk = 19;
 struct StreamContext {
     std::uint64_t timestamp;
     std::int32_t room, stage, stageType, roomType;

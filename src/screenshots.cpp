@@ -1,4 +1,5 @@
 #include "screenshots.hpp"
+#include "native_waits.hpp"
 #include <windows.h>
 #include <GL/gl.h>
 #include <MinHook.h>
@@ -11,6 +12,7 @@
 #include <deque>
 #include <mutex>
 #include <stdexcept>
+#include <sstream>
 
 namespace ip {
 namespace {
@@ -57,8 +59,57 @@ std::atomic<unsigned> presentationGeneration{0};
 std::mutex presentationMutex;
 std::array<StreamPresentation, 2048> presentationSamples;
 size_t presentationCount = 0;
-std::uint64_t presentationDropped = 0;
+std::atomic<std::uint64_t> presentationDropped{0};
+std::vector<std::string> renderStates;
 long long ticks(){LARGE_INTEGER n{};QueryPerformanceCounter(&n);return n.QuadPart;}
+
+void renderState(HDC dc, unsigned capture) {
+    struct State {
+        unsigned generation = 0;
+        ULONGLONG next = 0;
+        std::string previous;
+    };
+    thread_local State state;
+    const auto time = GetTickCount64();
+    if (state.generation == capture && time < state.next) return;
+    if (state.generation != capture) { state = {}; state.generation = capture; }
+    state.next = time + 500;
+    RECT client{};
+    const auto window = WindowFromDC(dc);
+    const bool clientValid = window && GetClientRect(window, &client);
+    GLint viewport[4]{};
+    glGetIntegerv(GL_VIEWPORT, viewport);
+    using SwapInterval = int (WINAPI*)();
+    const auto raw = wglGetProcAddress("wglGetSwapIntervalEXT");
+    const auto pointer = reinterpret_cast<std::intptr_t>(raw);
+    const auto interval = pointer > 3 && pointer != -1 ? reinterpret_cast<SwapInterval>(raw) : nullptr;
+    const int swapInterval = interval ? interval() : 0;
+    std::ostringstream fields(std::ios::binary);
+    Writer writer{fields};
+    writer.put<std::uint32_t>(GetCurrentThreadId());
+    writer.put<std::uint32_t>(clientValid ? client.right - client.left : 0);
+    writer.put<std::uint32_t>(clientValid ? client.bottom - client.top : 0);
+    for (const auto value : viewport) writer.put<std::int32_t>(value);
+    writer.put<std::int32_t>(swapInterval);
+    writer.put<std::uint32_t>((clientValid ? 1u : 0u) | (interval ? 2u : 0u));
+    writer.put<std::uint32_t>(waitHookMask());
+    for (const auto name : {GL_VENDOR, GL_RENDERER, GL_VERSION}) {
+        const auto* value = reinterpret_cast<const char*>(glGetString(name));
+        writer.string(value ? std::string(value).substr(0, 1024) : "unavailable");
+    }
+    const auto value = fields.str();
+    if (value == state.previous) return;
+    std::ostringstream packet(std::ios::binary);
+    Writer head{packet};
+    head.put<std::uint64_t>(static_cast<std::uint64_t>(std::max(0LL, ticks() - startTicks.load())));
+    packet.write(value.data(), value.size());
+    std::unique_lock lock(presentationMutex, std::try_to_lock);
+    if (!lock.owns_lock()) { ++presentationDropped; return; }
+    if (active.load() && presentationGeneration.load() == capture && renderStates.size() < 64) {
+        renderStates.push_back(packet.str());
+        state.previous = value;
+    }
+}
 template<class T> bool bind(T& fn, const char* name){const auto proc=wglGetProcAddress(name);if(!proc || reinterpret_cast<std::intptr_t>(proc)<=3 || reinterpret_cast<std::intptr_t>(proc)==-1)return false;fn=reinterpret_cast<T>(proc);return true;}
 bool initialize(){
 #define LOAD(field, name) if(!bind(gl.field, name)) return false
@@ -139,6 +190,8 @@ BOOL WINAPI swap(HDC dc){
     const auto capture=presentationGeneration.load();
     const auto glContext=wglGetCurrentContext();
     const bool measuring=active.load() && presentationEnabled.load() && glContext && wglGetCurrentDC()==dc;
+    if (glContext && wglGetCurrentDC() == dc) observeWaitThread(GetCurrentThreadId(), true);
+    if (measuring) { try { renderState(dc, capture); } catch (...) { ++presentationDropped; } }
     const auto readbackStart=measuring?ticks():0;
     try{sample();}catch(...){enabled.store(false);}
     const auto readbackEnd=measuring?ticks():0;
@@ -185,13 +238,14 @@ void installScreenshotHook(){
     if(!target || MH_CreateHook(reinterpret_cast<void*>(target),swap,reinterpret_cast<void**>(&originalSwap))!=MH_OK)throw std::runtime_error("Cannot hook frame presentation");
 }
 void configureScreenshots(bool use, unsigned interval){enabled.store(false);std::lock_guard lock(mutex);++generation;queue.clear();saved={};saved.intervalMs=use?interval:0;submitted=0;nextTime=0;enabled.store(use);}
-void configurePresentation(bool use){presentationEnabled.store(false);std::lock_guard lock(presentationMutex);++presentationGeneration;presentationCount=0;presentationDropped=0;presentationEnabled.store(use);}
+void configurePresentation(bool use){presentationEnabled.store(false);std::lock_guard lock(presentationMutex);++presentationGeneration;presentationCount=0;presentationDropped=0;renderStates.clear();presentationEnabled.store(use);}
+std::vector<std::string> drainRenderStates(){std::lock_guard lock(presentationMutex);std::vector<std::string> result;result.swap(renderStates);return result;}
 std::vector<StreamPresentation> drainPresentationSamples(std::uint64_t& omitted){
     std::lock_guard lock(presentationMutex);
     std::vector<StreamPresentation> result(presentationSamples.begin(),presentationSamples.begin()+presentationCount);
-    presentationCount=0;omitted=presentationDropped;presentationDropped=0;return result;
+    presentationCount=0;omitted=presentationDropped.exchange(0);return result;
 }
-void setScreenshotClock(bool recording,long long start,long long freq){startTicks.store(start);frequency.store(freq);active.store(recording);}
+void setScreenshotClock(bool recording,long long start,long long freq){startTicks.store(start);frequency.store(freq);active.store(recording);setWaitClock(recording,start);}
 void processScreenshots(){
     for(;;){Raw raw;{std::lock_guard lock(mutex);if(queue.empty())return;raw=std::move(queue.front());queue.pop_front();}
         try{auto png=encode(raw);std::lock_guard lock(mutex);if(raw.generation==generation)saved.images.push_back({raw.time,width,height,std::move(png)});}catch(...){std::lock_guard lock(mutex);++saved.omitted;}

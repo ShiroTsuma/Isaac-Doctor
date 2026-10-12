@@ -106,7 +106,7 @@ int wmain(int argc, wchar_t** argv) {
                 "         --stop-on duration|manual|run-load|room-entry|level-entry|projectile|tear|effect|npc|damage|run-end|game-exit\n"
                 "         --start-delay-ms 0..3600000 --stop-delay-ms 0..3600000; --after-load aliases --start-on run-load\n"
                 "         --max-duration-ms 0..3600000: independent hard limit after collection begins; 0 disables it\n"
-                "Scope: --channels MASK (default 4095), repeated --mod NAME and --hook NAME/ID; empty filters select all.\n"
+                "Scope: --channels MASK (default 8191), repeated --mod NAME and --hook NAME/ID; empty filters select all.\n"
                 "Filmstrip: --screenshots [--screenshot-ms 500] (320x180 PNG, max 240)\n"
                 "Examples:\n  isaacprof-injector attach\n  isaacprof-injector record --seconds 15\n";
             return 0;
