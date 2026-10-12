@@ -23,23 +23,28 @@ export function rankModel(model:Model,query:Query,limit=500):Results{
   // separate namespaces and ancestry; raw numeric IDs can collide (e.g. 68).
   const identify=(items:Row[],parent:string[])=>{for(const row of items){const path=[...parent,row.key];row.key=JSON.stringify([query.mode,...path]);if(row.children)identify(row.children,path);}};identify(rows,[]);
   rows.sort((a,b)=>(query.descending?-1:1)*(query.sort==='label'?a.label.localeCompare(b.label):a[query.sort]-b[query.sort]) || a.label.localeCompare(b.label));
-  return {rows:rows.slice(0,limit),count:rows.length,stats:rows.reduce((s,r)=>({self:s.self+r.exclusive,calls:s.calls+r.calls,errors:s.errors+r.errors}),{self:0,calls:0,errors:0})};
+  const omitted={calls:0,self:0,total:0};
+  if(query.minimumUs)for(const e of model.events)if((!query.range || e.start>=query.start && e.start<query.end) && e.duration*1000<query.minimumUs && matchesQuery(model.metrics.get(e.metric)!,query)){omitted.calls++;omitted.self+=e.self;omitted.total+=e.duration;}
+  return {omitted,rows:rows.slice(0,limit),count:rows.length,stats:rows.reduce((s,r)=>({self:s.self+r.exclusive,calls:s.calls+r.calls,errors:s.errors+r.errors}),{self:0,calls:0,errors:0})};
 }
 export async function rankCapture(stream:StreamCapture,query:Query,limit=500){
-  const metrics=query.range?await stream.rankMetrics(query.start,query.end):[...stream.metrics.values()];
-  return rankModel({document:stream.document,metrics:new Map(metrics.map(m=>[m.id,m])),events:[],duration:stream.duration,lanes:[],hasTimeline:true},{...query,range:false},limit);
+  const selection=query.range || query.minimumUs?await stream.rankSelection(query.range?query.start:0,query.range?query.end:stream.duration,query.minimumUs):{metrics:[...stream.metrics.values()],omittedMetrics:[]};
+  const result=rankModel({document:stream.document,metrics:new Map(selection.metrics.map(m=>[m.id,m])),events:[],duration:stream.duration,lanes:[],hasTimeline:true},{...query,range:false,minimumUs:0},limit);
+  result.omitted=selection.omittedMetrics.filter(m=>matchesQuery(m,query)).reduce((s,m)=>({calls:s.calls+m.calls,self:s.self+m.exclusive_ns/1e6,total:s.total+m.inclusive_ns/1e6}),{calls:0,self:0,total:0});
+  return result;
 }
-export async function eventsCapture(stream:StreamCapture,payload:WorkerOperations['events']['payload'],limit=500,minimumUs=0){
+export async function eventsCapture(stream:StreamCapture,payload:WorkerOperations['events']['payload'],limit=500,minimumUs=payload.minimumUs ?? 0){
   const metrics=stream.metrics;
   const compare=(a:TraceEvent,b:TraceEvent)=>{const v=payload.sort==='activity'?`${metrics.get(a.metric)!.mod} / ${metrics.get(a.metric)!.callback_name}`.localeCompare(`${metrics.get(b.metric)!.mod} / ${metrics.get(b.metric)!.callback_name}`):a[payload.sort]-b[payload.sort];return (payload.descending?-1:1)*v || a.start-b.start || a.metric-b.metric;};
   if(!payload.range && !payload.search && payload.mod===undefined && payload.hook===undefined && payload.metric===undefined && !payload.errorsOnly && !minimumUs && payload.sort==='start' && !payload.descending)return {rows:await stream.earliest(limit),count:stream.count};
-  const rows:TraceEvent[]=[];let count=0;
-  await stream.visitEvents(payload.range?payload.start:0,payload.range?payload.end:stream.duration,(event,id,ticks,duration,_self,_thread,_depth,error)=>{
+  const rows:TraceEvent[]=[],omitted={calls:0,self:0,total:0};let count=0;
+  await stream.visitEvents(payload.range?payload.start:0,payload.range?payload.end:stream.duration,(event,id,ticks,duration,self,_thread,_depth,error)=>{
     const start=ticks/stream.frequency*1000;
-    if((payload.range && (start<payload.start || start>=payload.end)) || (payload.errorsOnly && !error) || duration/stream.frequency*1e6<minimumUs || !matchesQuery(metrics.get(id)!,payload))return;
+    if((payload.range && (start<payload.start || start>=payload.end)) || (payload.errorsOnly && !error) || !matchesQuery(metrics.get(id)!,payload))return;
+    if(duration/stream.frequency*1e6<minimumUs){omitted.calls++;omitted.self+=self/stream.frequency*1000;omitted.total+=duration/stream.frequency*1000;return;}
     count++;rows.push(event());if(rows.length>=limit*2){rows.sort(compare);rows.length=limit;}
   });
-  rows.sort(compare);return {rows:rows.slice(0,limit),count};
+  rows.sort(compare);return {rows:rows.slice(0,limit),count,omitted};
 }
 export async function summaryCapture(stream:StreamCapture,start=0,end=stream.duration):Promise<{render:FrameSummary;update:FrameSummary}>{
   const range=stream.analysis && quarterRange(start,end,stream.duration);
@@ -78,7 +83,7 @@ export async function treeCapture(source:StreamCapture|Model,payload:Query,limit
         while(stack.length && (stack.at(-1)!.depth>=e.depth || stack.at(-1)!.start+stack.at(-1)!.duration<e.start+e.duration))stack.pop();
         let ancestry=[...stack,e];stack.push(e);
         if(e.span!==undefined){ancestry=[e];let parent=bySpan.get(e.parent!);const seen=new Set<number>([e.span]);while(parent && !seen.has(parent.span!)){seen.add(parent.span!);ancestry.unshift(parent);parent=bySpan.get(parent.parent!);}}
-        if(e.start<start || e.start>=end)continue;
+        if(e.start<start || e.start>=end || e.duration*1000<(payload.minimumUs ?? 0))continue;
         const m=(stream?.metrics ?? model.metrics).get(e.metric)!;if(!matchesQuery(m,payload))continue;
         let branch=roots;
         for(const ancestor of ancestry){

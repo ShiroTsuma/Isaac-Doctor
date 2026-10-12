@@ -222,11 +222,14 @@ int wmain(int argc, wchar_t** argv) {
             if (ip::read(&control->acknowledged) != request) throw std::runtime_error("Controller timed out waiting for the DLL.");
         }
         if (command == L"catalog") {
+            if (control->commandError[0]) throw std::runtime_error(control->commandError);
             if (!control->catalogJson[0]) throw std::runtime_error(control->message);
             std::cout << control->catalogJson << '\n'; return 0;
         }
+        const bool commandFailed = (command == L"record" || command == L"stop") && control->commandError[0];
+        const std::string message = commandFailed ? std::string("ERROR: ") + control->commandError : control->message;
         std::cout << "PID " << pid << " | " << stateName(ip::read(&control->state)) << " | "
-            << ip::read(&control->wrapped) << " registered metrics\n" << control->message << '\n';
+            << ip::read(&control->wrapped) << " registered metrics\n" << message << '\n';
         if (control->report[0]) { const auto path = std::filesystem::path(control->report).u8string();
             std::cout << "Report: " << std::string(reinterpret_cast<const char*>(path.data()), path.size()) << '\n'; }
         std::cout << "Triggers: "; bool firstTrigger = true;
@@ -234,6 +237,6 @@ int wmain(int argc, wchar_t** argv) {
             std::cout << (firstTrigger ? "" : ",") << ip::triggerNames[i]; firstTrigger = false;
         }
         std::cout << '\n';
-        return ip::read(&control->state) == ip::failed || std::string(control->message).starts_with("ERROR:") ? 1 : 0;
+        return ip::read(&control->state) == ip::failed || commandFailed || message.starts_with("ERROR:") ? 1 : 0;
     } catch (const std::exception& error) { std::cerr << "Error: " << error.what() << '\n'; return 1; }
 }

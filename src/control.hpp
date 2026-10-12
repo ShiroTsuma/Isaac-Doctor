@@ -3,7 +3,7 @@
 #include <string>
 
 namespace ip {
-constexpr LONG protocol = 8;
+constexpr LONG protocol = 9;
 enum Channel : LONG { callbacks = 1, timeline = 2, renderFrames = 4, updateFrames = 8, counters = 16, heap = 32, context = 64, markers = 128, overhead = 256, errors = 512, sources = 1024 };
 constexpr LONG allChannels = 2047;
 enum Trigger : LONG { immediate, run_load, room_entry, level_entry, projectile, tear, effect, npc, damage, run_end, game_exit, duration, manual };
@@ -37,6 +37,7 @@ struct Control {
     char catalogJson[131072];
     char message[512];
     wchar_t report[MAX_PATH * 4];
+    char commandError[512];
 };
 inline std::wstring mapping_name(DWORD pid) { return L"Local\\IsaacProf-" + std::to_wstring(pid); }
 inline LONG read(volatile LONG* value) { return InterlockedCompareExchange(value, 0, 0); }

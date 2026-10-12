@@ -27,8 +27,8 @@ export interface LoadedTrace {markers?:RunMarker[];analysis?:{key:string;state:'
 export interface Row {key:string;label:string;mod:string;metric:Metric|null;calls:number;errors:number;inclusive:number;exclusive:number;maximum:number;children?:Row[]}
 export interface TreeRow extends Row {depth:number;children:TreeRow[]}
 export type SortKey='label'|'exclusive'|'inclusive'|'maximum'|'calls'|'errors';
-export interface Query {mode:'mods'|'callbacks'|'hooks';start:number;end:number;search:string;mod?:string;hook?:string;metric?:number;errorsOnly?:boolean;range:boolean;sort:SortKey;descending:boolean}
-export interface Results {rows:Row[];count:number;stats:Stats}
+export interface Query {minimumUs?:number;mode:'mods'|'callbacks'|'hooks';start:number;end:number;search:string;mod?:string;hook?:string;metric?:number;errorsOnly?:boolean;range:boolean;sort:SortKey;descending:boolean}
+export interface Results {rows:Row[];count:number;stats:Stats;omitted?:{calls:number;self:number;total:number}}
 export interface WorkerOperations {
   inventory:{payload:null;result:CaptureInventory|null};
   graph:{payload:{kind:import('./graphs.ts').GraphKind;slot:number;start:number;end:number;columns:number;windowMs:number};result:import('./graphs.ts').GraphResult};
@@ -40,10 +40,10 @@ export interface WorkerOperations {
   analysis:{payload:{key:string};result:{sourceSize:number;appendix:Uint8Array<ArrayBuffer>}};
   frames:{payload:FrameQuery;result:FrameResults};
   load:{payload:{file:File};result:LoadedTrace};
-  viewport:{payload:{start:number;end:number;width:number};result:{packed:Float64Array;lanes:Lane[];stride:number;visibleCount:number}};
+  viewport:{payload:{start:number;end:number;width:number;minimumUs?:number};result:{packed:Float64Array;lanes:Lane[];stride:number;visibleCount:number}};
   source:{payload:{file:File;line:number};result:{start:number;lines:string[];total:number;sha256?:string}};
   rank:{payload:Query;result:Results};
-  events:{payload:Omit<Query,'sort'> & {sort:'start'|'duration'|'self'|'depth'|'activity'};result:{rows:TraceEvent[];count:number}};
+  events:{payload:Omit<Query,'sort'> & {sort:'start'|'duration'|'self'|'depth'|'activity'};result:{rows:TraceEvent[];count:number;omitted?:{calls:number;self:number;total:number}}};
   tree:{payload:Query;result:{rows:TreeRow[];count:number}};
   export:{payload:null;result:Uint8Array<ArrayBuffer>|Blob};
 }

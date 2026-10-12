@@ -77,7 +77,7 @@ interface ChromeEvent {ph:string;name:string;pid:number;tid:number;cat?:string;t
   function matches(m:Metric, search:string) {
     return !search || `${m.mod} ${m.callback_name} ${m.callback_id} ${m.source}`.toLocaleLowerCase().includes(search.toLocaleLowerCase());
   }
-  function rank(model:Model, {mode='mods',start=0,end=model.duration,search='',range=false,mod,hook,metric}:Partial<Query>={}) {
+  function rank(model:Model, {mode='mods',start=0,end=model.duration,search='',range=false,mod,hook,metric,minimumUs=0}:Partial<Query>={}) {
     const groups=new Map<string,Row>();
     function add(m:Metric,calls:number,errors:number,inclusive:number,exclusive:number,maximum:number) {
       if (!matches(m,search) || mod!==undefined && m.mod!==mod || hook!==undefined && m.callback_id!==hook && m.callback_name!==hook || metric!==undefined && m.id!==metric) return;
@@ -86,8 +86,8 @@ interface ChromeEvent {ph:string;name:string;pid:number;tid:number;cat?:string;t
         mod:m.mod,metric:mode==='callbacks'?m:null,calls:0,errors:0,inclusive:0,exclusive:0,maximum:0});
       const r=groups.get(key)!; r.calls+=calls; r.errors+=errors; r.inclusive+=inclusive; r.exclusive+=exclusive; r.maximum=Math.max(r.maximum,maximum);
     }
-    if (range) {
-      for(const e of model.events) if(e.start>=start && e.start<end) add(model.metrics.get(e.metric)!,1,+e.error,e.duration,e.self,e.duration);
+    if (range || minimumUs>0) {
+      for(const e of model.events) if((!range || e.start>=start && e.start<end) && e.duration*1000>=minimumUs) add(model.metrics.get(e.metric)!,1,+e.error,e.duration,e.self,e.duration);
     } else for(const m of model.metrics.values()) add(m,m.calls,m.errors,m.inclusive_ns/1e6,m.exclusive_ns/1e6,m.max_ns/1e6);
     return [...groups.values()];
   }

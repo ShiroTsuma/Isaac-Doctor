@@ -38,6 +38,8 @@ Select a slow frame, expand **mod → hook → function**, and read the Lua sour
 | Changes after a fix | Compare recordings by mod, hook or callback, including cost per call and call rate |
 | Large traces | Binary streaming, indexed range reads, Web Workers and reusable analysis in the original file |
 
+StageAPI's custom callbacks are measured under their owning mod and `StageAPI:HOOK_NAME`. Expanding the parent callback reveals these nested calls, so a costly StageAPI dispatch can be traced to the mod function it invokes. Existing callbacks and later registrations are covered; the mods-loaded notification also handles StageAPI loading after attachment.
+
 ## Quick start
 
 **Requires:** Windows x64, Repentance+ with [REPENTOGON](https://github.com/TeamREPENTOGON/REPENTOGON), and Chrome or Edge. The portable package includes the runtime and native tools.
@@ -80,7 +82,7 @@ Add entity and effect graphs beside FPS. Select the section where cadence drops 
 
 ### Follow the call tree
 
-Zoom into individual hooks and nested calls, then rank a selected range in **Bottom-up**. Expand a mod to inspect its hooks and functions. Each graph has its own channel choice; all graphs share navigation and the selected time range.
+Zoom into individual hooks and nested calls, then rank a selected range in **Bottom-up**. Expand a mod to inspect its hooks and functions. Each graph has its own channel choice; all graphs share navigation and the selected time range. Use **Min call**, next to **Range**, to focus on callbacks above a chosen duration in ?s or ms. Shorter calls collapse into a single group with their count and summed self/total time in the callback tables. This changes the view, keeps the recording intact, and leaves FPS/frame statistics unchanged.
 
 ![Zoomed callback spans and per-hook costs](docs/images/callback-detail.png)
 
@@ -90,19 +92,19 @@ Choose **when to start**, **when to stop**, and an independent delay in millisec
 
 | Stop mode | When collection ends |
 | --- | --- |
-| **After duration** | After **Record for** seconds. This field replaces **Stop delay** beside **Stop when**. |
+| **After duration** | After the number of seconds set in **Record for**, beside **Stop when**. |
 | **On an event** | After the matching event plus its stop delay. Enable **Maximum duration** to stop even if the event never happens. Whichever happens first wins. |
 | **Manual stop** | When you click **Stop**. There is no implicit 25-second limit. You can enable **Maximum duration** as a separate safety limit. |
 
 Times count from the beginning of collection, after the start condition and start delay. The maximum duration ends collection without an additional stop delay. Empty delay fields mean **0 ms**; the manual mode hides its unused stop delay. For example, **On room entry**, a **500 ms** stop delay and a **25 s maximum** ends 500 ms after the next room entry, or after 25 seconds if that condition has not ended the recording yet.
 
-![Capture configuration showing channel switches, mod/hook filters and start/stop delays](docs/images/capture-configuration.png)
+![Capture configuration: Stop when → After duration, with Record for directly beside it](docs/images/capture-configuration-record-for.png)
 
-*Example: select Diepio and CuerLib update/render callbacks, start 250 ms after room entry, and use **After duration → Record for 25 s**.*
+*Record Diepio and CuerLib render/update callbacks for **25 seconds**, starting **250 ms after room entry**. Expand **Capture scope** to select the channels, mods and hooks.*
 
 - **Channels:** select callback timings, render/update frames, counters, memory, context, markers, errors and other available data. Screenshots have a separate switch.
 - **Mods and hooks:** names load after **Connect game**. Use **Refresh lists** to read them again, select names from the dropdowns, or enter exact names one per line. Empty filters mean all; populated mod and hook filters must both match. Hooks also accept numeric IDs.
-- **Minimum duration:** uses microseconds, so `1000 µs = 1 ms`. Short selected calls stay in aggregate timings but leave the saved timeline. Mod/hook filters and disabling callback timings bypass measurement for excluded calls.
+- **Capture minimum duration:** uses microseconds, so `1000 µs = 1 ms`. Short selected calls stay in aggregate timings but leave the saved timeline. Mod/hook filters and disabling callback timings bypass measurement for excluded calls.
 
 The recording stores its capture settings. Triggers still work when their data channels are disabled. Repeated matching events do not reset a pending delay; **Stop** remains immediate. Canceling before collection begins creates no recording.
 

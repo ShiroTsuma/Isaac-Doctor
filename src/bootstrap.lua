@@ -63,10 +63,46 @@ end
 -- enumerates keys, including custom callbacks registered before attachment.
 for _, id in ipairs(native.callback_ids(oldGet)) do instrument(oldGet(id), id) end
 for id in pairs(callbackNames) do instrument(oldGet(id), id) end
+
+-- StageAPI has its own callback registry. Its entries would otherwise be
+-- charged to the native callback that dispatches them, hiding the owning mod.
+-- Wrap existing entries and new registrations, keeping dispatch untouched.
+local stageInstalled = setmetatable({}, {__mode='k'})
+local function installStageCallbacks()
+    if type(StageAPI) ~= 'table' or type(StageAPI.Callbacks) ~= 'table'
+        or type(StageAPI.AddCallback) ~= 'function' or stageInstalled[StageAPI] == StageAPI.AddCallback then return end
+    local stage = StageAPI
+    local oldStageAdd = stage.AddCallback
+    local function instrumentStage(id)
+        local list = stage.Callbacks[id]
+        if type(list) ~= 'table' then return end
+        local key = 'StageAPI:' .. tostring(id)
+        callbackNames[key] = key
+        for _, entry in ipairs(list) do
+            if type(entry.Function) == 'function' then
+                local owner = entry.ModID
+                local name = type(owner) == 'table' and tostring(owner.Name or 'unknown') or tostring(owner)
+                entry.Function = wrap(entry.Function, {Name=name}, key)
+            end
+        end
+    end
+    for id in pairs(stage.Callbacks) do instrumentStage(id) end
+    stage.AddCallback = function(modID, id, priority, fn, ...)
+        local result = pack(oldStageAdd(modID, id, priority, fn, ...))
+        instrumentStage(id)
+        return unpack(result, 1, result.n)
+    end
+    stageInstalled[stage] = stage.AddCallback
+end
+installStageCallbacks()
 -- Native observer only. Runs after a loaded run's first update; no Lua timing,
 -- polling, allocations or screenshot work in this callback.
 if type(RegisterMod) == 'function' and type((ModCallbacks or {}).MC_POST_UPDATE) == 'number' then
     local owner = RegisterMod('IsaacProf lifecycle', 1)
+    if type(ModCallbacks.MC_POST_MODS_LOADED) == 'number' then
+        originals[installStageCallbacks] = installStageCallbacks
+        oldAdd(owner, ModCallbacks.MC_POST_MODS_LOADED, -100000, installStageCallbacks)
+    end
     originals[native.run_update] = native.run_update
     oldAdd(owner, ModCallbacks.MC_POST_UPDATE, -100000, native.run_update)
     if type(ModCallbacks.MC_POST_RENDER) == 'number' then

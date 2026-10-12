@@ -34,7 +34,7 @@ export class StreamCapture {
   indexCRC=0;
   telemetryCache:Telemetry|null=null;
   captureKey='';
-  private rankCache:{start:number;end:number;metrics:Metric[]}|null=null;
+  private rankCache:{start:number;end:number;minimumUs:number;metrics:Metric[];omittedMetrics:Metric[]}|null=null;
   constructor(file:BinarySource){this.file=file;}
   remember(block:Block,bytes:ArrayBuffer){if(bytes.byteLength>2*1024*1024)return;const old=this.cache.get(block.offset);if(old)this.cacheBytes-=old.byteLength;this.cache.delete(block.offset);this.cache.set(block.offset,bytes);this.cacheBytes+=bytes.byteLength;while(this.cacheBytes>this.cacheLimit || this.cache.size>65536){const key=this.cache.keys().next().value!,old=this.cache.get(key)!;this.cacheBytes-=old.byteLength;this.cache.delete(key);}}
   async read(offset:number,size:number){if(offset<0 || size<0 || offset+size>this.file.size)throw Error('Truncated capture block.');return this.file.slice(offset,offset+size).arrayBuffer();}
@@ -68,11 +68,12 @@ export class StreamCapture {
     if(!merged.length)return;const blocks=new Set<Block>();for(const [start,end] of merged)for(const block of this.eventIndex.query(start*this.frequency/1000,end*this.frequency/1000))blocks.add(block);
     await this.visitEvents(merged[0][0],merged.at(-1)![1],(event,_id,ticks)=>{const start=ticks/this.frequency*1000;let low=0,high=merged.length;while(low<high){const middle=(low+high)>>>1;if(merged[middle][0]<=start)low=middle+1;else high=middle;}if(low && start<merged[low-1][1])visit(event());},0,[...blocks]);
   }
-  async rankMetrics(start:number,end:number){
-    if(this.rankCache?.start===start && this.rankCache.end===end)return this.rankCache.metrics;
-    const {totals,edges}=rangePlan(this.analysis,this.metrics,start,end),scale=1e9/this.frequency;
-    for(const [a,b] of edges)await this.visitEvents(a,b,(_event,id,ticks,duration,self,_thread,_depth,error)=>{const at=ticks/this.frequency*1000;if(at<a || at>=b)return;let m=totals.get(id);if(!m){m={...this.metrics.get(id)!,calls:0,errors:0,inclusive_ns:0,exclusive_ns:0,max_ns:0};totals.set(id,m);}m.calls++;m.errors+=+error;m.inclusive_ns+=duration*scale;m.exclusive_ns+=self*scale;m.max_ns=Math.max(m.max_ns,duration*scale);});
-    const metrics=[...totals.values()].map(m=>({...m,mean_ns:m.calls?m.inclusive_ns/m.calls:0}));this.rankCache={start,end,metrics};return metrics;
+  async rankMetrics(start:number,end:number,minimumUs=0){return (await this.rankSelection(start,end,minimumUs)).metrics;}
+  async rankSelection(start:number,end:number,minimumUs=0){
+    if(this.rankCache?.start===start && this.rankCache.end===end && this.rankCache.minimumUs===minimumUs)return this.rankCache;
+    const {totals,edges}=rangePlan(minimumUs?null:this.analysis,this.metrics,start,end),omitted=new Map<number,Metric>(),scale=1e9/this.frequency;
+    for(const [a,b] of edges)await this.visitEvents(a,b,(_event,id,ticks,duration,self,_thread,_depth,error)=>{const at=ticks/this.frequency*1000;if(at<a || at>=b)return;const target=duration/this.frequency*1e6<minimumUs?omitted:totals;let m=target.get(id);if(!m){m={...this.metrics.get(id)!,calls:0,errors:0,inclusive_ns:0,exclusive_ns:0,max_ns:0};target.set(id,m);}m.calls++;m.errors+=+error;m.inclusive_ns+=duration*scale;m.exclusive_ns+=self*scale;m.max_ns=Math.max(m.max_ns,duration*scale);});
+    const metrics=[...totals.values()].map(m=>({...m,mean_ns:m.calls?m.inclusive_ns/m.calls:0}));this.rankCache={start,end,minimumUs,metrics,omittedMetrics:[...omitted.values()]};return this.rankCache;
   }
   async load(options:{screenshots?:boolean;overview?:boolean}={}):Promise<LoadedTrace>{
     const progress=this.progress('Reading capture index',1);progress(0);
@@ -251,22 +252,23 @@ export class StreamCapture {
     }
     return rows;
   }
-  async viewportEvents(start:number,end:number,width:number){
+  async viewportEvents(start:number,end:number,width:number,minimumUs=0){
     const columns=Math.max(100,Math.min(4096,Math.round(width))),span=Math.max(.000001,end-start),buckets=new Map<string,TraceEvent>();
     const consider=(event:()=>TraceEvent,_metric:number,ticks:number,duration:number,_self:number,thread:number,depth:number)=>{
+      if(duration/this.frequency*1e6<minimumUs)return;
       const pixel=Math.max(0,Math.min(columns-1,Math.floor((ticks/this.frequency*1000-start)/span*columns))),key=`${thread}:${depth}:${pixel}`,old=buckets.get(key);
       if(!old || duration/this.frequency*1000>old.duration)buckets.set(key,event());
       if(buckets.size>overviewLimit)throw Error('Visible range has too many thread/depth tracks. Zoom in.');
     };
     const overview=this.analysis?.overview;
-    if(overview && start===0 && end===this.duration && columns===overview.columns)return overview.events.slice();
+    if(overview && start===0 && end===this.duration && columns===overview.columns)return overview.events.filter(e=>e.duration*1000>=minimumUs);
     // Use cached LOD only for the whole session. Zoomed ranges retain native resolution.
     if(overview && start===0 && end===this.duration && columns<overview.columns){for(const e of overview.events)consider(()=>e,e.metric,e.start*this.frequency/1000,e.duration*this.frequency/1000,e.self*this.frequency/1000,e.thread,e.depth);}
-    else await this.visitEvents(start,end,consider,span/columns*this.frequency/1000);
+    else await this.visitEvents(start,end,consider,Math.max(span/columns*this.frequency/1000,minimumUs/1e6*this.frequency));
     return [...buckets.values()].sort((a,b)=>a.start-b.start || a.depth-b.depth);
   }
-  async viewport(start:number,end:number,width:number){
-    const events=await this.viewportEvents(start,end,width),packed=new Float64Array(events.length*10),indices=new Map<string,number[]>(),laneInfo=new Map<string,{thread:number;depth:number}>();
+  async viewport(start:number,end:number,width:number,minimumUs=0){
+    const events=await this.viewportEvents(start,end,width,minimumUs),packed=new Float64Array(events.length*10),indices=new Map<string,number[]>(),laneInfo=new Map<string,{thread:number;depth:number}>();
     for(let i=0;i<events.length;i++){const e=events[i];packed.set([e.metric,e.start,e.duration,e.self,e.depth,e.thread,+e.error,e.index!,e.span!,e.parent!],i*10);const key=`${e.thread}:${e.depth}`;if(!indices.has(key)){indices.set(key,[]);laneInfo.set(key,{thread:e.thread,depth:e.depth});}indices.get(key)!.push(i);}
     const lanes:Lane[]=[...indices].map(([key,ids])=>({key,...laneInfo.get(key)!,indices:Uint32Array.from(ids)})).sort((a,b)=>a.thread-b.thread || a.depth-b.depth);
     return {packed,lanes,stride:10,visibleCount:events.length};

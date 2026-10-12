@@ -52,7 +52,7 @@ async function handle({data:{id,type,payload}}:MessageEvent<Request>){
       document.timeline.events=[];
     }else if(type==='viewport'){
       if(!stream)throw Error('Viewport reads require a streaming capture.');
-      const view=await stream.viewport(payload.start,payload.end,payload.width);result=view;transfer=[view.packed.buffer,...view.lanes.map(l=>l.indices.buffer)];
+      const view=await stream.viewport(payload.start,payload.end,payload.width,payload.minimumUs);result=view;transfer=[view.packed.buffer,...view.lanes.map(l=>l.indices.buffer)];
     }else if(type==='inventory'){
       result=stream?(await stream.telemetry(0,stream.duration)).inventory ?? null:null;
     }else if(type==='telemetry'){
@@ -77,8 +77,9 @@ async function handle({data:{id,type,payload}}:MessageEvent<Request>){
       result=stream?await rankCapture(stream,payload):rankModel(model,payload);
     }else if(type==='events'){
       if(stream)result=await eventsCapture(stream,payload);
-      else {const rows=model.events.filter(e=>(!payload.range || e.start>=payload.start && e.start<payload.end) && (!payload.errorsOnly || e.error) && Core.matches(model.metrics.get(e.metric)!,payload.search));
-        rows.sort((a,b)=>(payload.descending?-1:1)*(payload.sort==='activity'?model.metrics.get(a.metric)!.mod.localeCompare(model.metrics.get(b.metric)!.mod):a[payload.sort]-b[payload.sort]) || a.start-b.start);result={rows:rows.slice(0,500),count:rows.length};}
+      else {const candidates=model.events.filter(e=>(!payload.range || e.start>=payload.start && e.start<payload.end) && (!payload.errorsOnly || e.error) && Core.matches(model.metrics.get(e.metric)!,payload.search));
+        const rows=candidates.filter(e=>e.duration*1000>=(payload.minimumUs ?? 0)),omitted=candidates.filter(e=>e.duration*1000<(payload.minimumUs ?? 0)).reduce((s,e)=>({calls:s.calls+1,self:s.self+e.self,total:s.total+e.duration}),{calls:0,self:0,total:0});
+        rows.sort((a,b)=>(payload.descending?-1:1)*(payload.sort==='activity'?model.metrics.get(a.metric)!.mod.localeCompare(model.metrics.get(b.metric)!.mod):a[payload.sort]-b[payload.sort]) || a.start-b.start);result={rows:rows.slice(0,500),count:rows.length,omitted};}
     }else if(type==='tree'){
       result=await treeCapture(stream ?? model,payload);
     }else if(type==='export'){

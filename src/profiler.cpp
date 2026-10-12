@@ -735,6 +735,7 @@ DWORD WINAPI worker(void*) {
         for (;;) {
             const LONG request = ip::read(&control->request);
             if (request != handled) {
+                control->commandError[0] = '\0';
                 const LONG command = ip::read(&control->command);
                 try {
                     if (command == ip::start) {
@@ -805,6 +806,9 @@ DWORD WINAPI worker(void*) {
                     } else throw std::runtime_error("Unknown command.");
                 } catch (const std::exception& error) {
                     // Command errors are recoverable; state still describes actual recording.
+                    // Keep the acknowledged result separate from live progress:
+                    // the collecting update below can replace the status message.
+                    strncpy_s(control->commandError, error.what(), _TRUNCATE);
                     status(active.load() ? ip::recording : (pendingStart.load() ? ip::armed : (mainState.load() ? ip::ready : ip::waiting_lua)), std::string("ERROR: ") + error.what());
                 }
                 handled = request;

@@ -26,6 +26,16 @@ async function files(selector,paths){const doc=await send('DOM.getDocument',{},s
  await send('Page.navigate',{url:process.env.ISAACPROF_TEST_URL || 'http://127.0.0.1:8765/'},session);await until(()=>evaluate('!!document.querySelector("#folder-input")'));
 
   await files('#file',[frameFile]);await until(()=>evaluate('document.querySelector("#filename").textContent.includes('+JSON.stringify(path.basename(frameFile))+')'));
+  const setMinimum=async value=>evaluate(`(()=>{const el=document.querySelector('#minimum-call-duration');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,${JSON.stringify(value)});el.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  await click('#tab-bottom-up');await until(()=>evaluate('document.querySelectorAll("#rows tr").length>0'));
+  await setMinimum('1000000');await until(()=>evaluate('document.querySelectorAll("#rows tr").length===0 && document.querySelector(".short-calls-group")?.textContent.includes("calls")'));
+  assert(await evaluate('parseFloat(document.querySelector(".short-calls-group span").textContent.replaceAll(",", ""))>0'));
+  await evaluate(`(()=>{const el=document.querySelector('[aria-label="Callback duration unit"]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(el,'ms');el.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await until(()=>evaluate('document.querySelector("#minimum-call-duration").value==="1000"'));
+  await click('#tab-event-log');await until(()=>evaluate('document.querySelectorAll("#rows tr").length===0'));
+  await click('#tab-call-tree');await until(()=>evaluate('document.querySelectorAll("#rows tr").length===0'));
+  await setMinimum('0');await click('#tab-bottom-up');await until(()=>evaluate('document.querySelectorAll("#rows tr").length>0 && !document.querySelector(".short-calls-group")'));
+  await click('#tab-summary');
   await click('#zoom-in');await click('#zoom-in');await until(()=>evaluate('!document.querySelector(".trace-load-status")'));
   const change=async(selector,value)=>evaluate(`(()=>{const el=document.querySelector(${JSON.stringify(selector)}),set=Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set;set.call(el,${JSON.stringify(value)});el.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   const readRange=()=>evaluate('document.querySelector("#range").textContent');

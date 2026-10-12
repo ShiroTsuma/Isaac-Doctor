@@ -83,8 +83,10 @@ try:
     print(run('stop'))
     assert len(list((binary/'captures').glob(f'capture-*-pid{host.pid}-*.isaacprof'))) == 2
     capped = read_capture(sorted((binary/'captures').glob(f'capture-*-pid{host.pid}-*.isaacprof'))[-1])
-    assert len(capped['timeline']['events'])==3 and capped['timeline']['dropped_events']>0
-    assert sum(r['calls'] for r in capped['metrics'])>3
+    # --events limits the pending ring, not total retained events in a stream.
+    assert capped['timeline']['capacity']==3 and len(capped['timeline']['events'])>3
+    measured=sum(r['calls'] for r in capped['metrics'])
+    assert len(capped['timeline']['events'])+capped['timeline']['dropped_events']==measured
     print(run('record', '--seconds', '10', '--trace', '--min-us', '1000000'))
     time.sleep(0.25)
     print(run('stop'))
@@ -97,7 +99,9 @@ try:
     assert rejected.returncode != 0
     invalid.write_bytes(captures[-1].read_bytes()[:-1])
     rejected = subprocess.run([str(binary/'isaacprof-analyze.exe'), str(invalid)], capture_output=True, text=True)
-    assert rejected.returncode != 0
+    # Streaming readers salvage valid snapshots when the terminal index is
+    # truncated, explicitly distinguishing them from complete recordings.
+    assert rejected.returncode == 0 and 'partial snapshot' in rejected.stdout
     invalid.unlink()
     print('PASS: native wrappers, callback semantics, nested timeline, event limits/filtering, sessions, analyzer')
 finally:

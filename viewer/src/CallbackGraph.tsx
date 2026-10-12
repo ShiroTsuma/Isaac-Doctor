@@ -3,10 +3,10 @@ import React,{useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
 import {axisTime,color,eventAt,ms,visibleIndices} from './trace.ts';
 
 import type {Lane,LoadedTrace,Metric,Selection,TraceEvent,WorkerClient} from './types.ts';
-interface Props {id?:string;request:WorkerClient['request'];data:LoadedTrace|null;range:[number,number];setRange:(range:[number,number])=>void;selected:Selection|null;selectEvent:(event:TraceEvent,metric:Metric)=>void;search:string}
+interface Props {id?:string;request:WorkerClient['request'];data:LoadedTrace|null;range:[number,number];setRange:(range:[number,number])=>void;selected:Selection|null;selectEvent:(event:TraceEvent,metric:Metric)=>void;search:string;minimumUs:number}
 interface Hit {x:number;y:number;w:number;e:TraceEvent}
 function canvasSize(canvas:HTMLCanvasElement,width:number,height:number){const dpr=devicePixelRatio || 1;canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);canvas.style.width=width+'px';canvas.style.height=height+'px';const ctx=canvas.getContext('2d')!;ctx.scale(dpr,dpr);ctx.font='11px Arial, sans-serif';return ctx;}
-export default function CallbackGraph({data,range,setRange,selected,selectEvent,search,id='timeline'}:Props){
+export default function CallbackGraph({data,range,setRange,selected,selectEvent,search,minimumUs,id='timeline'}:Props){
   const host=useRef<HTMLDivElement>(null),canvas=useRef<HTMLCanvasElement>(null),hits=useRef<Hit[]>([]),[width,setWidth]=useState(1),[tooltip,setTooltip]=useState<{event:TraceEvent;x:number;y:number}|null>(null),[collapsed,setCollapsed]=useState<Set<number>>(new Set());
   const flameHost=useRef<HTMLDivElement>(null),[availableHeight,setAvailableHeight]=useState(150);
   useLayoutEffect(()=>{const observer=new ResizeObserver(([entry])=>setAvailableHeight(Math.max(150,Math.floor(entry.contentRect.height))));observer.observe(flameHost.current!);return()=>observer.disconnect();},[]);
@@ -36,7 +36,7 @@ export default function CallbackGraph({data,range,setRange,selected,selectEvent,
         const lane=track.lanes[li],y=track.y+25+li*18;let lastPixel=-1;
         for(const index of visibleIndices(chart!,lane,range[0],range[1])){
           const e=eventAt(chart!,index),m=metricMap.get(e.metric)!,x=Math.max(0,(e.start-range[0])/span*width),right=Math.min(width,(e.start+e.duration-range[0])/span*width),w=Math.max(.7,right-x);
-          if(!m)continue;
+          if(!m || e.duration*1000<minimumUs)continue;
           if(w<1 && Math.floor(x)===lastPixel && selected?.event?.index!==e.index)continue;lastPixel=Math.floor(x);
           const matching=!search || `${m.mod} ${m.callback_name} ${m.source}`.toLowerCase().includes(search.toLowerCase());ctx.globalAlpha=matching?1:.2;ctx.fillStyle=color(m.mod);ctx.fillRect(x,y,w,16);
           if(e.error){ctx.fillStyle='#ef756c';ctx.beginPath();ctx.moveTo(x+w-6,y);ctx.lineTo(x+w,y);ctx.lineTo(x+w,y+6);ctx.fill();}
@@ -46,7 +46,7 @@ export default function CallbackGraph({data,range,setRange,selected,selectEvent,
         }
       }
     }
-  },[data,chart,width,height,range,selected,search,tracks,metricMap,collapsed]);
+  },[data,chart,width,height,range,selected,search,minimumUs,tracks,metricMap,collapsed]);
   function point(e:React.PointerEvent<HTMLCanvasElement>|React.MouseEvent<HTMLCanvasElement>,el:HTMLCanvasElement){const r=el.getBoundingClientRect();return{x:e.clientX-r.x,y:e.clientY-r.y};}
   function hit(p:{x:number;y:number}){return hits.current.findLast(h=>p.y>=h.y && p.y<=h.y+16 && p.x>=h.x && p.x<=h.x+h.w)?.e;}
   function hover(e:React.PointerEvent<HTMLCanvasElement>){const found=hit(point(e,e.currentTarget));setTooltip(found?{event:found,x:e.clientX,y:e.clientY}:null);}
