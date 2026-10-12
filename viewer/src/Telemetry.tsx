@@ -1,4 +1,5 @@
 import { channelOptions, triggerOptions } from './recording-config.ts';
+import { ResizableTableHeader } from './SortableHeader.tsx';
 import { useEffect, useState } from 'react';
 import type {
   CounterSample,
@@ -294,15 +295,15 @@ export default function Telemetry({
         </p>
       </details>
       <table className="marker-table">
-        <thead>
-          <tr>
-            <th>Context sample</th>
-            <th>Room / stage</th>
-            <th>Grid</th>
-            <th>Entities / enemies</th>
-            <th>Tears / projectiles / effects</th>
-          </tr>
-        </thead>
+        <ResizableTableHeader
+          labels={[
+            'Context sample',
+            'Room / stage',
+            'Grid',
+            'Entities / enemies',
+            'Tears / projectiles / effects',
+          ]}
+        />
         <tbody>
           {(result.context ?? []).slice(0, 500).map((c) => (
             <tr key={c.time}>
@@ -380,13 +381,9 @@ export default function Telemetry({
               Lua: {info.luaModule}
             </p>
             <table>
-              <thead>
-                <tr>
-                  <th>Mod</th>
-                  <th>Source</th>
-                  <th>SHA-256 at capture</th>
-                </tr>
-              </thead>
+              <ResizableTableHeader
+                labels={['Mod', 'Source', 'SHA-256 at capture']}
+              />
               <tbody>
                 {info.sources.slice(0, 1000).map((s, i) => (
                   <tr key={i}>
@@ -406,13 +403,7 @@ export default function Telemetry({
         )}
       </details>
       <table className="marker-table">
-        <thead>
-          <tr>
-            <th>Time</th>
-            <th>Marker</th>
-            <th>Observed state</th>
-          </tr>
-        </thead>
+        <ResizableTableHeader labels={['Time', 'Marker', 'Observed state']} />
         <tbody>
           {result.markers.slice(0, 500).map((m, i) => (
             <tr key={i}>

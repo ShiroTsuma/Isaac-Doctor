@@ -1,0 +1,23 @@
+th.resizable-column {
+  position: relative;
+  padding-right: 10px;
+}
+
+.column-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 8px;
+  z-index: 1;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  border-right: 1px solid var(--border);
+}
+
+.column-resizer:hover,
+.column-resizer:focus-visible {
+  background: #8ab4f833;
+  border-right-color: var(--accent);
+}

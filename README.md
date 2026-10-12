@@ -76,6 +76,8 @@ If a slow interval has little extra Lua work, choose **Frames → Presentation**
 
 Enable **Native Sleep / wait calls** to inspect explicit Windows waits on the observed Lua and rendering threads. **Frames → Presentation** shows the six covered APIs, requested timeouts, observed wall durations and call sites as `module+offset`. Click a wait to select its exact span, or add the **Native Sleep / waits (ms)** graph alongside presentation timing. A 1 ms requested timeout can have a longer observed duration. Wait spans can overlap callbacks and `SwapBuffers`; do not add these times together.
 
+Drag any table header's right edge to resize its column. Widths are remembered for that column layout, including Presentation, native waits, comparison and telemetry tables. Focus an edge and use arrow keys for keyboard resizing; double-click it to reset the table widths.
+
 The presentation panel also records window size, OpenGL viewport, renderer and swap interval when available. Missing wait records do not rule out scheduling delays, other waiting APIs or GPU work. For a lightweight control recording, disable callback aggregates and timeline while retaining presentation, native waits, frame intervals, room context and process counters. Compare the same room after startup menus close.
 
 The source CLI exposes the same analysis without opening the browser:

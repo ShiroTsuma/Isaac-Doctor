@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import SortableHeader from './SortableHeader.tsx';
+import SortableHeader, { ResizableTableHeader } from './SortableHeader.tsx';
 import type {
   FrameRow,
   LoadedTrace,
@@ -353,15 +353,15 @@ export default function SlowFramePatterns({
               quality, reference population and individual differences.
             </div>
             <table>
-              <thead>
-                <tr>
-                  <th>Interval</th>
-                  <th>Wall</th>
-                  <th>Extra self</th>
-                  <th>Extra unattributed wall</th>
-                  <th>Reference</th>
-                </tr>
-              </thead>
+              <ResizableTableHeader
+                labels={[
+                  'Interval',
+                  'Wall',
+                  'Extra self',
+                  'Extra unattributed wall',
+                  'Reference',
+                ]}
+              />
               <tbody>
                 {matched.slowest_intervals.map((f) => (
                   <tr key={`${f.thread}:${f.id}`}>
