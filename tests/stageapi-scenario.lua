@@ -20,11 +20,23 @@ local function registry()
 end
 StageAPI=registry()
 local total,added,removed=0,false,false
+local scopes={}
+function scopes.work(value)
+ assert(value==7)
+ local sum=0;for i=1,1000 do sum=sum+math.sqrt(i)end
+ return nil,'second',false,sum
+end
+function scopes.fail() error('Controlled function scope error') end
+_IsaacProfFunctionScopes={false, {target=false},
+ {mod='Function scope owner',prefix='Library',target=scopes,names={'work','fail','missing',false}}}
 local original=function(value)assert(value==7);local sum=0;for i=1,1000 do sum=sum+math.sqrt(i)end;total=total+1;return sum end
 StageAPI.AddCallback('Stage test owner','POST_HUD_RENDER',0,original,42)
 StageAPI.AddCallback('Stage error owner','POST_HUD_RENDER',1,function()error('Controlled StageAPI error')end)
 StageAPI.AddCallback('Stage multi owner','MULTI',0,function()return nil,'second',false,7 end)
 Isaac.AddPriorityCallback({Name='Stage dispatch'},2,0,function()
+ local a,b,c,d=scopes.work(7)
+ assert(a==nil and b=='second' and c==false and type(d)=='number')
+ local ok,message=pcall(scopes.fail);assert(not ok and message:find('Controlled function scope error',1,true))
  assert(StageAPI.Callbacks.POST_HUD_RENDER[1].Params[1]==42)
  StageAPI.CallCallbacks('POST_HUD_RENDER',7)
  local a,b,c,d=StageAPI.Callbacks.MULTI[1].Function()
@@ -47,6 +59,7 @@ function TestTick()
   for _,entry in ipairs(Isaac.GetCallbacks(13))do entry.Function(entry.Mod) end
   assert(StageAPI.AddCallback~=previous.AddCallback)
   assert(debug.getinfo(StageAPI.Callbacks.POST_HUD_RENDER[1].Function,'S').what=='C')
+  assert(debug.getinfo(scopes.work,'S').what=='C')
  end
  if _IsaacProfInstalled and total>100 and not StageAPI.InPlaceReload then
   local fresh=registry()
@@ -57,5 +70,11 @@ function TestTick()
   StageAPI.InPlaceReload=true
   for _,entry in ipairs(Isaac.GetCallbacks(13))do entry.Function(entry.Mod) end
   assert(debug.getinfo(StageAPI.Callbacks.POST_HUD_RENDER[1].Function,'S').what=='C')
+  -- A replaced method is discovered on mods-loaded, without wrapping an
+  -- already measured method again or altering multiple/nil return values.
+  scopes.work=function(value)assert(value==7);return nil,'second',false,91 end
+  local fail=scopes.fail
+  for _,entry in ipairs(Isaac.GetCallbacks(13))do entry.Function(entry.Mod) end
+  assert(scopes.fail==fail and debug.getinfo(scopes.work,'S').what=='C')
  end
 end

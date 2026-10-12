@@ -95,6 +95,27 @@ local function installStageCallbacks()
     stageInstalled[stage] = stage.AddCallback
 end
 installStageCallbacks()
+-- Optional cooperative function scopes. Registration is cold-path only;
+-- calls use the same native closures as callbacks. Absent registrations add
+-- no per-frame work. Mods retain ownership of their tables and functions.
+local function installFunctionScopes()
+    local registrations = _IsaacProfFunctionScopes
+    if type(registrations) ~= 'table' then return end
+    for _, scope in ipairs(registrations) do
+        if type(scope) == 'table' and type(scope.target) == 'table'
+            and type(scope.names) == 'table' and type(scope.mod) == 'string'
+            and type(scope.prefix) == 'string' then
+            for _, name in ipairs(scope.names) do
+                if type(name) == 'string' and type(scope.target[name]) == 'function' then
+                    local key = 'Function:' .. scope.prefix .. '.' .. name
+                    callbackNames[key] = key
+                    scope.target[name] = wrap(scope.target[name], {Name=scope.mod}, key)
+                end
+            end
+        end
+    end
+end
+installFunctionScopes()
 -- Native observer only. Runs after a loaded run's first update; no Lua timing,
 -- polling, allocations or screenshot work in this callback.
 if type(RegisterMod) == 'function' and type((ModCallbacks or {}).MC_POST_UPDATE) == 'number' then
@@ -102,6 +123,8 @@ if type(RegisterMod) == 'function' and type((ModCallbacks or {}).MC_POST_UPDATE)
     if type(ModCallbacks.MC_POST_MODS_LOADED) == 'number' then
         originals[installStageCallbacks] = installStageCallbacks
         oldAdd(owner, ModCallbacks.MC_POST_MODS_LOADED, -100000, installStageCallbacks)
+        originals[installFunctionScopes] = installFunctionScopes
+        oldAdd(owner, ModCallbacks.MC_POST_MODS_LOADED, -100000, installFunctionScopes)
     end
     originals[native.run_update] = native.run_update
     oldAdd(owner, ModCallbacks.MC_POST_UPDATE, -100000, native.run_update)

@@ -30,12 +30,18 @@ try:
  assert any(m['mod']=='Stage error owner' and m['errors']>0 for m in stage)
  assert any(m['mod']=='Stage multi owner' for m in stage)
  assert any(m['mod']=='Stage in-place owner' for m in stage)
+ scopes=[m for m in rows if m['callback_id'].startswith('Function:') and m['calls']]
+ assert any(m['mod']=='Function scope owner' and m['callback_id']=='Function:Library.work' for m in scopes)
+ assert any(m['callback_id']=='Function:Library.fail' and m['errors']>0 for m in scopes)
  parent=next(m for m in rows if m['mod']=='Stage dispatch')
  assert parent['inclusive_ns']>parent['exclusive_ns']
  ids={m['id'] for m in stage}
  assert any(e[0] in ids and e[4]>=1 for e in doc['timeline']['events'])
+ scope_ids={m['id'] for m in scopes}
+ assert any(e[0] in scope_ids and e[4]>=1 for e in doc['timeline']['events'])
  catalog=json.loads(run('catalog'));assert 'StageAPI:POST_HUD_RENDER' in catalog['hooks'] and 'Stage test owner' in catalog['mods']
- print('PASS: existing/dynamic/reloaded StageAPI entries use native closures; owner, source, errors, nil/multiple returns, removal and parent self attribution preserved')
+ assert 'Function:Library.work' in catalog['hooks']
+ print('PASS: StageAPI and opt-in function scopes use native closures; registration/reload, owner, source, nesting, errors, nil/multiple returns and callback removal preserved')
 finally:
  if host.poll() is None:host.terminate()
  _,errors=host.communicate(timeout=10);assert not errors,errors
