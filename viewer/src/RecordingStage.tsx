@@ -11,17 +11,23 @@ export default function RecordingStage({
   processing?: ProcessingProgress | null;
 }) {
   const [clock, setClock] = useState(() => performance.now());
-  const collecting = status?.state === 'recording',
-    armed = status?.state === 'armed',
-    saving = status?.state === 'saving';
+  const collecting = status?.state === 'recording';
+  const armed = status?.state === 'armed';
+  const saving = status?.state === 'saving';
   useEffect(() => {
-    if (!collecting) return;
+    if (!collecting) {
+      return;
+    }
     const timer = setInterval(() => setClock(performance.now()), 200);
     return () => clearInterval(timer);
   }, [collecting]);
-  if (!loading && !collecting && !armed && !saving) return null;
-  const elapsed = (status?.elapsedMs ?? 0) + Math.max(0, clock - (status?.updatedAt ?? clock)),
-    duration = status?.durationMs ?? 0;
+  if (!loading && !collecting && !armed && !saving) {
+    return null;
+  }
+  const elapsed =
+    (status?.elapsedMs ?? 0) +
+    Math.max(0, clock - (status?.updatedAt ?? clock));
+  const duration = status?.durationMs ?? 0;
   const finishing = collecting && duration > 0 && elapsed >= duration;
   const title = loading
     ? 'Loading profile…'
@@ -33,7 +39,11 @@ export default function RecordingStage({
   return (
     <div className="recording-stage" role="status" aria-live="polite">
       <div className="recording-stage-card">
-        <span className={collecting && !finishing ? 'collecting-dot' : 'stage-spinner'} />
+        <span
+          className={
+            collecting && !finishing ? 'collecting-dot' : 'stage-spinner'
+          }
+        />
         <b>{title}</b>
         {loading && processing ? (
           <>
@@ -41,7 +51,8 @@ export default function RecordingStage({
               {processing.stage}: {processing.percent}%
             </span>
             <span>
-              {processing.completed.toLocaleString()} / {processing.total.toLocaleString()} blocks
+              {processing.completed.toLocaleString()} /{' '}
+              {processing.total.toLocaleString()} blocks
             </span>
             <progress
               max={Math.max(1, processing.total)}
@@ -52,7 +63,8 @@ export default function RecordingStage({
         ) : collecting && duration > 0 ? (
           <>
             <span>
-              {(Math.min(elapsed, duration) / 1000).toFixed(1)} / {(duration / 1000).toFixed(0)} s
+              {(Math.min(elapsed, duration) / 1000).toFixed(1)} /{' '}
+              {(duration / 1000).toFixed(0)} s
             </span>
             <progress
               max={duration}

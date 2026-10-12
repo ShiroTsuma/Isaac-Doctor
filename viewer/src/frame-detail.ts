@@ -1,4 +1,5 @@
 import { FrameReferenceIndex } from './frame-reference.ts';
+import { presentationWindow } from './presentation.ts';
 import type { ReferenceMatch } from './frame-reference.ts';
 import type { StreamCapture } from './stream.ts';
 import type { FrameInterval, Metric, RoomContext, Telemetry } from './types.ts';
@@ -14,6 +15,7 @@ export interface FrameCost {
   children?: FrameCost[];
 }
 export interface FrameDetail {
+  presentation?: import('./presentation.ts').PresentationWindow;
   frame: FrameInterval;
   hasUpdate: boolean;
   baseline: FrameInterval | null;
@@ -29,7 +31,10 @@ export interface FrameDetail {
   telemetry: Telemetry;
   incomplete: boolean;
 }
-export function containsUpdate(frame: FrameInterval, observations: FrameInterval[]) {
+export function containsUpdate(
+  frame: FrameInterval,
+  observations: FrameInterval[],
+) {
   return observations.some(
     (f) =>
       f.kind === 1 &&
@@ -51,14 +56,20 @@ export async function frameDetail(
     selected.duration <= 0 ||
     selected.start < 0 ||
     selected.start + selected.duration > stream.duration + 0.001
-  )
+  ) {
     throw Error('Invalid frame interval.');
-  const start = Math.max(0, selected.start - 5000),
-    end = Math.min(stream.duration, selected.start + selected.duration + 5000),
-    intervals: FrameInterval[] = [];
+  }
+  const start = Math.max(0, selected.start - 5000);
+  const end = Math.min(
+    stream.duration,
+    selected.start + selected.duration + 5000,
+  );
+  const intervals: FrameInterval[] = [];
   for await (const f of stream.intervals(start, end)) {
     intervals.push(f);
-    if (intervals.length > 200000) throw Error('Frame neighborhood exceeds 200,000 intervals.');
+    if (intervals.length > 200000) {
+      throw Error('Frame neighborhood exceeds 200,000 intervals.');
+    }
   }
   const frame = intervals.find(
     (f) =>
@@ -67,34 +78,47 @@ export async function frameDetail(
       f.thread === selected.thread &&
       Math.abs(f.start - selected.start) < 0.0001,
   );
-  if (!frame) throw Error('Selected frame is no longer available.');
-  const telemetry = await stream.telemetry(start, end),
-    index = new FrameReferenceIndex(intervals, telemetry),
-    reference = index.match(frame),
-    hasUpdate = reference.hasUpdate,
-    context = reference.context;
+  if (!frame) {
+    throw Error('Selected frame is no longer available.');
+  }
+  const telemetry = await stream.telemetry(start, end);
+  const index = new FrameReferenceIndex(intervals, telemetry);
+  const reference = index.match(frame);
+  const hasUpdate = reference.hasUpdate;
+  const context = reference.context;
   const baseline = reference.frames[0] ?? null;
-  const selectedCosts = new Map<number, { self: number; calls: number }>(),
-    baselineCosts = new Map<number, { self: number; calls: number }>();
+  const selectedCosts = new Map<number, { self: number; calls: number }>();
+  const baselineCosts = new Map<number, { self: number; calls: number }>();
   let boundaryCrossingCalls = 0;
   await stream.visitRanges(
     [
       [frame.start, frame.start + frame.duration],
-      ...reference.frames.map((f) => [f.start, f.start + f.duration] as [number, number]),
+      ...reference.frames.map(
+        (f) => [f.start, f.start + f.duration] as [number, number],
+      ),
     ],
     (event) => {
-      if (event.thread !== frame.thread) return;
+      if (event.thread !== frame.thread) {
+        return;
+      }
       const costs =
         event.start >= frame.start && event.start < frame.start + frame.duration
           ? selectedCosts
           : reference.frames.some(
-                (f) => event.start >= f.start && event.start < f.start + f.duration,
+                (f) =>
+                  event.start >= f.start && event.start < f.start + f.duration,
               )
             ? baselineCosts
             : null;
-      if (!costs) return;
-      if (costs === selectedCosts && event.start + event.duration > frame.start + frame.duration)
+      if (!costs) {
+        return;
+      }
+      if (
+        costs === selectedCosts &&
+        event.start + event.duration > frame.start + frame.duration
+      ) {
         boundaryCrossingCalls++;
+      }
       let cost = costs.get(event.metric);
       if (!cost) {
         cost = { self: 0, calls: 0 };
@@ -104,18 +128,21 @@ export async function frameDetail(
       cost.calls++;
     },
   );
-  const mods = new Map<string, FrameCost>(),
-    hooks = new Map<string, FrameCost>();
-  for (const id of new Set([...selectedCosts.keys(), ...baselineCosts.keys()])) {
-    const m = stream.metrics.get(id) as Metric,
-      a = selectedCosts.get(id),
-      b = baselineCosts.get(id),
-      values = {
-        self: a?.self ?? 0,
-        calls: a?.calls ?? 0,
-        baselineSelf: (b?.self ?? 0) / Math.max(1, reference.frames.length),
-        baselineCalls: (b?.calls ?? 0) / Math.max(1, reference.frames.length),
-      };
+  const mods = new Map<string, FrameCost>();
+  const hooks = new Map<string, FrameCost>();
+  for (const id of new Set([
+    ...selectedCosts.keys(),
+    ...baselineCosts.keys(),
+  ])) {
+    const m = stream.metrics.get(id) as Metric;
+    const a = selectedCosts.get(id);
+    const b = baselineCosts.get(id);
+    const values = {
+      self: a?.self ?? 0,
+      calls: a?.calls ?? 0,
+      baselineSelf: (b?.self ?? 0) / Math.max(1, reference.frames.length),
+      baselineCalls: (b?.calls ?? 0) / Math.max(1, reference.frames.length),
+    };
     let mod = mods.get(m.mod);
     if (!mod) {
       mod = {
@@ -158,6 +185,7 @@ export async function frameDetail(
     });
   }
   const costs = [...mods.values()];
+
   function order(rows: FrameCost[]) {
     rows.sort(
       (a, b) =>
@@ -165,10 +193,23 @@ export async function frameDetail(
         b.self - a.self ||
         a.key.localeCompare(b.key),
     );
-    for (const row of rows) if (row.children) order(row.children);
+    for (const row of rows) {
+      if (row.children) {
+        order(row.children);
+      }
+    }
   }
+
   order(costs);
   return {
+    presentation: stream.blocks?.some((block) => block.type === 16)
+      ? await presentationWindow(
+          stream,
+          frame.start,
+          frame.start + frame.duration,
+          frame.thread,
+        )
+      : undefined,
     frame,
     hasUpdate,
     baseline,
@@ -180,7 +221,9 @@ export async function frameDetail(
     self: costs.reduce((s, c) => s + c.self, 0),
     baselineSelf: costs.reduce((s, c) => s + c.baselineSelf, 0),
     context,
-    baselineContext: baseline ? contextAt(telemetry.context, baseline.start) : undefined,
+    baselineContext: baseline
+      ? contextAt(telemetry.context, baseline.start)
+      : undefined,
     telemetry: {
       ...telemetry,
       errors: telemetry.errors?.filter(

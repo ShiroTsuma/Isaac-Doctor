@@ -11,6 +11,17 @@ function run(command,args=[],input){const result=spawnSync(process.execPath,[cli
 function json(command,args=[]){const result=run(command,args);assert.equal(result.status,0,result.stderr);const output=JSON.parse(result.stdout);assert(output.ok);return output;}
 async function capture(){const file=await CaptureFile.open(fixture),stream=new StreamCapture(file);await stream.load({screenshots:false,overview:false});return {file,stream};}
 
+test('presentation sorts use their own fields and support recordings without this channel',()=>{
+ for(const sort of ['start','duration','swap','readback','outside','cycles']){
+  const result=json('presentation',['--sort',sort,'--top','3','--non-interactive']);
+  assert.equal(result.result.available,false);
+  assert.equal(result.result.count,0);
+ }
+ const invalid=run('presentation',['--sort','exclusive']);
+ assert.equal(invalid.status,1);
+ assert.match(JSON.parse(invalid.stderr).error,/presentation sort/);
+});
+
 test('machine-readable capabilities and recording discovery require no capture decoding',()=>{const manifest=spawnSync(process.execPath,[cli,'--describe'],{encoding:'utf8'});assert.equal(manifest.status,0);const capabilities=JSON.parse(manifest.stdout);assert(capabilities.commands.some(c=>c.command==='source'));assert(capabilities.network===false);const list=spawnSync(process.execPath,[cli,'list',path.dirname(fixture),'--top','3'],{encoding:'utf8'});assert.equal(list.status,0,list.stderr);const result=JSON.parse(list.stdout);assert(result.result.rows.length>0 && result.result.rows.length<=3);assert(result.result.rows.every(r=>r.path.endsWith('.isaacprof')));assert.equal(result.diagnostics.read_bytes,0);});
 
 test('CLI exposes channels, native coverage and actual rates using bounded reads',()=>{

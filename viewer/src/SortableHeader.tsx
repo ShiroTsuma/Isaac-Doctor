@@ -21,7 +21,9 @@ export default function SortableHeader<K extends string>({
         {columns.map(({ key, label }) => (
           <th
             key={key}
-            aria-sort={sort === key ? (descending ? 'descending' : 'ascending') : 'none'}
+            aria-sort={
+              sort === key ? (descending ? 'descending' : 'ascending') : 'none'
+            }
           >
             <button onClick={() => onSort(key)}>
               {label}

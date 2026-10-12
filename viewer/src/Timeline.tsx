@@ -29,6 +29,7 @@ const options: [Kind, string][] = [
   ['render-ms', 'Render interval (ms)'],
   ['render-percentiles', 'Render interval percentiles'],
   ['fps', 'FPS + percentiles'],
+  ['presentation-ms', 'Presentation / SwapBuffers (ms)'],
   ['update-ms', 'Update interval (ms)'],
   ['update-percentiles', 'Update interval percentiles'],
   ['ups', 'UPS + percentiles'],
@@ -41,29 +42,31 @@ const options: [Kind, string][] = [
   ['effects', 'Effects'],
 ];
 export default function Timeline(props: Props) {
-  const { data, range, setRange, request, minimumUs } = props,
-    host = useRef<HTMLDivElement>(null),
-    overview = useRef<HTMLCanvasElement>(null),
-    drag = useRef<number | null>(null),
-    serial = useRef(1);
-  const [width, setWidth] = useState(1000),
-    [panes, setPanes] = useState<{ id: number; kind: Kind; windowMs: number }[]>([
-      { id: 0, kind: 'callbacks', windowMs: 1000 },
-    ]);
+  const { data, range, setRange, request, minimumUs } = props;
+  const host = useRef<HTMLDivElement>(null);
+  const overview = useRef<HTMLCanvasElement>(null);
+  const drag = useRef<number | null>(null);
+  const serial = useRef(1);
+  const [width, setWidth] = useState(1000);
+  const [panes, setPanes] = useState<
+    { id: number; kind: Kind; windowMs: number }[]
+  >([{ id: 0, kind: 'callbacks', windowMs: 1000 }]);
   const primary = panes[0];
-  const overviewKey = JSON.stringify([primary.kind, primary.windowMs, width]),
-    [overviewState, setOverviewState] = useState<{
-      owner: LoadedTrace;
-      key: string;
-      result?: GraphResult;
-      error?: string;
-    } | null>(null);
+  const overviewKey = JSON.stringify([primary.kind, primary.windowMs, width]);
+  const [overviewState, setOverviewState] = useState<{
+    owner: LoadedTrace;
+    key: string;
+    result?: GraphResult;
+    error?: string;
+  } | null>(null);
   const overviewResult =
     overviewState?.owner === data && overviewState.key === overviewKey
       ? overviewState.result
       : undefined;
   useEffect(() => {
-    if (!data?.streaming || primary.kind === 'callbacks') return;
+    if (!data?.streaming || primary.kind === 'callbacks') {
+      return;
+    }
     let active = true;
     const timer = setTimeout(() => {
       void request('graph', {
@@ -75,15 +78,18 @@ export default function Timeline(props: Props) {
         windowMs: primary.windowMs,
       })
         .then((result) => {
-          if (active) setOverviewState({ owner: data, key: overviewKey, result });
+          if (active) {
+            setOverviewState({ owner: data, key: overviewKey, result });
+          }
         })
         .catch((e: unknown) => {
-          if (active)
+          if (active) {
             setOverviewState({
               owner: data,
               key: overviewKey,
               error: e instanceof Error ? e.message : 'Cannot read overview',
             });
+          }
         });
     }, 150);
     return () => {
@@ -91,14 +97,14 @@ export default function Timeline(props: Props) {
       clearTimeout(timer);
     };
   }, [data, primary.kind, primary.windowMs, width, overviewKey, request]);
-  const hasCallbacks = panes.some((p) => p.kind === 'callbacks'),
-    [viewport, setViewport] = useState<{
-      owner: LoadedTrace;
-      key: string;
-      view: WorkerOperations['viewport']['result'];
-    } | null>(null),
-    [error, setError] = useState(''),
-    key = JSON.stringify([range, width, minimumUs]);
+  const hasCallbacks = panes.some((p) => p.kind === 'callbacks');
+  const [viewport, setViewport] = useState<{
+    owner: LoadedTrace;
+    key: string;
+    view: WorkerOperations['viewport']['result'];
+  } | null>(null);
+  const [error, setError] = useState('');
+  const key = JSON.stringify([range, width, minimumUs]);
   useLayoutEffect(() => {
     const observer = new ResizeObserver(([entry]) =>
       setWidth(Math.max(100, entry.contentRect.width)),
@@ -107,10 +113,17 @@ export default function Timeline(props: Props) {
     return () => observer.disconnect();
   }, []);
   useEffect(() => {
-    if (!data?.streaming || !hasCallbacks) return;
+    if (!data?.streaming || !hasCallbacks) {
+      return;
+    }
     let active = true;
     const timer = setTimeout(() => {
-      void request('viewport', { start: range[0], end: range[1], width, minimumUs })
+      void request('viewport', {
+        start: range[0],
+        end: range[1],
+        width,
+        minimumUs,
+      })
         .then((view) => {
           if (active) {
             setViewport({ owner: data, key, view });
@@ -118,7 +131,9 @@ export default function Timeline(props: Props) {
           }
         })
         .catch((e: unknown) => {
-          if (active) setError(e instanceof Error ? e.message : 'Cannot read callbacks');
+          if (active) {
+            setError(e instanceof Error ? e.message : 'Cannot read callbacks');
+          }
         });
     }, 60);
     return () => {
@@ -127,8 +142,8 @@ export default function Timeline(props: Props) {
     };
   }, [data, range, width, key, hasCallbacks, request, minimumUs]);
   useEffect(() => {
-    const canvas = overview.current!,
-      dpr = devicePixelRatio || 1;
+    const canvas = overview.current!;
+    const dpr = devicePixelRatio || 1;
     canvas.width = Math.round(width * dpr);
     canvas.height = 94 * dpr;
     const ctx = canvas.getContext('2d')!;
@@ -137,11 +152,18 @@ export default function Timeline(props: Props) {
     ctx.fillRect(0, 0, width, 94);
     ctx.font = '11px Arial';
     ctx.fillStyle = '#aeb0b5';
-    const duration = Math.max(0.001, data?.duration ?? 1),
-      ticks = Math.max(2, Math.floor(width / 130));
-    for (let i = 0; i <= ticks; i++)
-      ctx.fillText(ms((i / ticks) * duration), Math.min(width - 70, (i / ticks) * width + 5), 12);
-    if (!data) return;
+    const duration = Math.max(0.001, data?.duration ?? 1);
+    const ticks = Math.max(2, Math.floor(width / 130));
+    for (let i = 0; i <= ticks; i++) {
+      ctx.fillText(
+        ms((i / ticks) * duration),
+        Math.min(width - 70, (i / ticks) * width + 5),
+        12,
+      );
+    }
+    if (!data) {
+      return;
+    }
     const series =
       primary.kind === 'callbacks'
         ? [
@@ -153,17 +175,26 @@ export default function Timeline(props: Props) {
               })),
             },
           ]
-        : (overviewResult?.series ?? [{ color: '#8ab4f8', points: overviewResult?.points ?? [] }]);
+        : (overviewResult?.series ?? [
+            { color: '#8ab4f8', points: overviewResult?.points ?? [] },
+          ]);
     let max = 0.001;
-    for (const line of series) for (const point of line.points) max = Math.max(max, point.value);
+    for (const line of series) {
+      for (const point of line.points) {
+        max = Math.max(max, point.value);
+      }
+    }
     for (const line of series) {
       ctx.strokeStyle = line.color;
       ctx.beginPath();
       line.points.forEach((p, i) => {
-        const x = (p.time / duration) * width,
-          y = 75 - (p.value / max) * 42;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
+        const x = (p.time / duration) * width;
+        const y = 75 - (p.value / max) * 42;
+        if (i === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
       });
       ctx.stroke();
     }
@@ -173,8 +204,8 @@ export default function Timeline(props: Props) {
       7,
       28,
     );
-    const a = (range[0] / duration) * width,
-      b = (range[1] / duration) * width;
+    const a = (range[0] / duration) * width;
+    const b = (range[1] / duration) * width;
     ctx.fillStyle = '#08090ba0';
     ctx.fillRect(0, 17, a, 77);
     ctx.fillRect(b, 17, width - b, 77);
@@ -182,11 +213,15 @@ export default function Timeline(props: Props) {
     ctx.strokeRect(a + 0.5, 17.5, Math.max(1, b - a - 1), 76);
   }, [data, range, width, primary.kind, overviewResult]);
   const shown =
-    data && viewport?.owner === data && viewport.key === key ? { ...data, ...viewport.view } : data;
+    data && viewport?.owner === data && viewport.key === key
+      ? { ...data, ...viewport.view }
+      : data;
+
   function position(e: React.PointerEvent<HTMLCanvasElement>) {
     const r = e.currentTarget.getBoundingClientRect();
     return ((e.clientX - r.left) / r.width) * (data?.duration ?? 1);
   }
+
   return (
     <div className="timeline-region" ref={host}>
       <canvas
@@ -199,14 +234,19 @@ export default function Timeline(props: Props) {
             : undefined
         }
         onPointerDown={(e) => {
-          if (!data) return;
+          if (!data) {
+            return;
+          }
           drag.current = position(e);
           e.currentTarget.setPointerCapture(e.pointerId);
         }}
         onPointerMove={(e) => {
           if (drag.current !== null) {
             const time = position(e);
-            setRange([Math.min(drag.current, time), Math.max(drag.current, time)]);
+            setRange([
+              Math.min(drag.current, time),
+              Math.max(drag.current, time),
+            ]);
           }
         }}
         onPointerUp={(e) => {
@@ -227,7 +267,11 @@ export default function Timeline(props: Props) {
         )}
       <div className="graph-stack">
         {panes.map((pane, index) => (
-          <section className="graph-pane" key={pane.id} aria-label={`Graph ${index + 1}`}>
+          <section
+            className="graph-pane"
+            key={pane.id}
+            aria-label={`Graph ${index + 1}`}
+          >
             <div className="graph-toolbar">
               <label>
                 Graph{' '}
@@ -238,7 +282,9 @@ export default function Timeline(props: Props) {
                   onChange={(e) =>
                     setPanes((old) =>
                       old.map((p) =>
-                        p.id === pane.id ? { ...p, kind: e.target.value as Kind } : p,
+                        p.id === pane.id
+                          ? { ...p, kind: e.target.value as Kind }
+                          : p,
                       ),
                     )
                   }
@@ -256,7 +302,10 @@ export default function Timeline(props: Props) {
                 title="Add an independent graph below"
                 onClick={() => {
                   const id = serial.current++;
-                  setPanes((old) => [...old, { id, kind: 'fps', windowMs: 1000 }]);
+                  setPanes((old) => [
+                    ...old,
+                    { id, kind: 'fps', windowMs: 1000 },
+                  ]);
                 }}
               >
                 ＋
@@ -265,7 +314,9 @@ export default function Timeline(props: Props) {
                 <button
                   className="small-button"
                   aria-label={`Remove graph ${index + 1}`}
-                  onClick={() => setPanes((old) => old.filter((p) => p.id !== pane.id))}
+                  onClick={() =>
+                    setPanes((old) => old.filter((p) => p.id !== pane.id))
+                  }
                 >
                   ×
                 </button>
@@ -281,7 +332,9 @@ export default function Timeline(props: Props) {
                     onChange={(e) =>
                       setPanes((old) =>
                         old.map((p) =>
-                          p.id === pane.id ? { ...p, windowMs: Number(e.target.value) } : p,
+                          p.id === pane.id
+                            ? { ...p, windowMs: Number(e.target.value) }
+                            : p,
                         ),
                       )
                     }
@@ -316,7 +369,9 @@ export default function Timeline(props: Props) {
                 windowMs={pane.windowMs}
               />
             ) : (
-              <div className="no-analysis">Load a streaming recording to view this channel.</div>
+              <div className="no-analysis">
+                Load a streaming recording to view this channel.
+              </div>
             )}
           </section>
         ))}

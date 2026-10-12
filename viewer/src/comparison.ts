@@ -42,9 +42,13 @@ export function compareMetrics(
   for (const [side, values] of [
     ['a', a],
     ['b', b],
-  ] as const)
+  ] as const) {
     for (const m of values) {
-      const key = JSON.stringify([m.mod, m.callback_name || m.callback_id, localSource(m)]);
+      const key = JSON.stringify([
+        m.mod,
+        m.callback_name || m.callback_id,
+        localSource(m),
+      ]);
       let group = groups.get(key);
       if (!group) {
         group = { a: [], b: [] };
@@ -52,6 +56,7 @@ export function compareMetrics(
       }
       group[side].push(m);
     }
+  }
   const rows: ComparisonRow[] = [];
   for (const [key, g] of groups) {
     g.a.sort((x, y) => x.line - y.line || x.id - y.id);
@@ -64,9 +69,15 @@ export function compareMetrics(
     ) => {
       const m = x ?? y!;
       const hashA =
-          x && inventoryA?.sources.find((s) => s.mod === x.mod && s.source === x.source)?.sha256,
-        hashB =
-          y && inventoryB?.sources.find((s) => s.mod === y.mod && s.source === y.source)?.sha256;
+        x &&
+        inventoryA?.sources.find(
+          (s) => s.mod === x.mod && s.source === x.source,
+        )?.sha256;
+      const hashB =
+        y &&
+        inventoryB?.sources.find(
+          (s) => s.mod === y.mod && s.source === y.source,
+        )?.sha256;
       rows.push({
         key: JSON.stringify([key, index]),
         mod: m.mod,
@@ -75,7 +86,12 @@ export function compareMetrics(
         lineA: x?.line ?? null,
         lineB: y?.line ?? null,
         identity,
-        code: hashA && hashB ? (hashA === hashB ? 'same' : 'changed') : 'unavailable',
+        code:
+          hashA && hashB
+            ? hashA === hashB
+              ? 'same'
+              : 'changed'
+            : 'unavailable',
         callsA: x?.calls ?? 0,
         callsB: y?.calls ?? 0,
         selfA: (x?.exclusive_ns ?? 0) / 1e6,
@@ -84,18 +100,30 @@ export function compareMetrics(
         meanB: y?.calls ? y.exclusive_ns / y.calls / 1000 : null,
       });
     };
-    if (g.a.length === g.b.length)
-      for (let i = 0; i < g.a.length; i++)
-        append(g.a[i], g.b[i], String(i), g.a[i].line === g.b[i].line ? 'same-line' : 'ordinal');
-    else {
+    if (g.a.length === g.b.length) {
+      for (let i = 0; i < g.a.length; i++) {
+        append(
+          g.a[i],
+          g.b[i],
+          String(i),
+          g.a[i].line === g.b[i].line ? 'same-line' : 'ordinal',
+        );
+      }
+    } else {
       const used = new Set<Metric>();
       for (const x of g.a) {
         const matches = g.b.filter((y) => y.line === x.line && !used.has(y));
         const y = matches.length === 1 ? matches[0] : undefined;
-        if (y) used.add(y);
+        if (y) {
+          used.add(y);
+        }
         append(x, y, 'a' + x.id, y ? 'same-line' : 'unmatched');
       }
-      for (const y of g.b) if (!used.has(y)) append(undefined, y, 'b' + y.id, 'unmatched');
+      for (const y of g.b) {
+        if (!used.has(y)) {
+          append(undefined, y, 'b' + y.id, 'unmatched');
+        }
+      }
     }
   }
   return rows;
@@ -106,15 +134,16 @@ export async function compareCaptures(
   start = 0,
   end = a.duration,
 ): Promise<Comparison> {
-  const [metricsA, inventoryA, inventoryB, summaryA, summaryB] = await Promise.all([
-    start === 0 && end === a.duration
-      ? Promise.resolve([...a.metrics.values()])
-      : a.rankMetrics(start, end),
-    a.telemetry(0, a.duration),
-    b.telemetry(0, b.duration),
-    summaryCapture(a, start, end),
-    summaryCapture(b),
-  ]);
+  const [metricsA, inventoryA, inventoryB, summaryA, summaryB] =
+    await Promise.all([
+      start === 0 && end === a.duration
+        ? Promise.resolve([...a.metrics.values()])
+        : a.rankMetrics(start, end),
+      a.telemetry(0, a.duration),
+      b.telemetry(0, b.duration),
+      summaryCapture(a, start, end),
+      summaryCapture(b),
+    ]);
   return {
     durationA: end - start,
     durationB: b.duration,
@@ -131,6 +160,7 @@ export async function compareCaptures(
       !b.document.complete ||
       !!a.document.timeline.dropped_events ||
       !!b.document.timeline.dropped_events ||
-      ((start !== 0 || end !== a.duration) && !!a.document.timeline.filtered_events),
+      ((start !== 0 || end !== a.duration) &&
+        !!a.document.timeline.filtered_events),
   };
 }

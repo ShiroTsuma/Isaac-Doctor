@@ -9,13 +9,13 @@ def decode_stream(data):
     frequency=struct.unpack_from('<Q',data,24)[0]
     if not frequency: raise ValueError('Invalid QPC frequency')
     index_offset=index_size=index_end=-1
-    offset=40; metadata=None; events=[]; shots=[]; intervals=[]; counters=[];heap=[];markers=[];inventory=[];context=[];overhead=[];errors=[];configuration=None;finalized=False
+    offset=40; metadata=None; events=[]; shots=[]; intervals=[]; counters=[];heap=[];markers=[];inventory=[];context=[];overhead=[];errors=[];presentation=[];configuration=None;finalized=False
     while offset+8<=len(data):
         if data[offset:offset+8]==b'IPEND003':
             finalized=offset+32<=len(data) and index_end==offset and struct.unpack_from('<QI',data,offset+8)==(index_offset,index_size);break
         if offset+48>len(data): break
         magic,kind,version,size,count,sequence,minimum,maximum,crc,flags=struct.unpack_from('<IHHIIQQQII',data,offset)
-        if magic!=0x4b4e4843 or size>64*1024*1024 or (kind<=15 and version!=1): raise ValueError('Invalid stream block')
+        if magic!=0x4b4e4843 or size>64*1024*1024 or (kind<=16 and version!=1): raise ValueError('Invalid stream block')
         offset+=48
         if offset+size>len(data): break
         payload=data[offset:offset+size];offset+=size
@@ -60,6 +60,14 @@ def decode_stream(data):
                 strings.append(payload[cursor:cursor+n].decode('utf-8',errors='replace'));cursor+=n
             if cursor!=size:raise ValueError('Trailing Lua error bytes')
             errors.append(dict(time_ns=ticks*1e9/frequency,metric=metric,thread=thread,span=span,message=strings[0],stack=strings[1]))
+        elif kind==16:
+            if size!=count*80 or not 1<=count<=2048:raise ValueError('Invalid presentation block')
+            for p in range(0,size,80):
+                start,length,ident,swap_start,swap,readback_start,readback,cycles,swap_cycles,thread,flags=struct.unpack_from('<QQQQQQQQQII',payload,p)
+                if not ident or not thread or not length or flags>7 or start<minimum or start+length>maximum or readback_start<start or readback_start+readback>swap_start or swap_start+swap>start+length or (flags&3)==3 and swap_cycles>cycles:raise ValueError('Invalid presentation timing')
+                presentation.append(dict(id=ident,thread=thread,start_ns=start*1e9/frequency,duration_ns=length*1e9/frequency,
+                    swap_start_ns=swap_start*1e9/frequency,swap_ns=swap*1e9/frequency,readback_start_ns=readback_start*1e9/frequency,readback_ns=readback*1e9/frequency,
+                    cycles=cycles if flags&1 else None,swap_cycles=swap_cycles if flags&2 else None,success=bool(flags&4)))
         elif kind==15:
             cursor=0
             def number():
@@ -80,7 +88,7 @@ def decode_stream(data):
             if configuration['version'] not in (1,2):raise ValueError('Unsupported capture configuration version')
             configuration['maxDurationMs']=number() if configuration['version']==2 else 0
             configuration.update(selectedMods=names(),selectedHooks=names())
-            if configuration['channels']>2047 or configuration['startOn']>10 or not 1<=configuration['stopOn']<=12 or max(configuration['startDelayMs'],configuration['stopDelayMs'],configuration['maxDurationMs'])>3600000 or cursor!=size:raise ValueError('Invalid capture configuration')
+            if configuration['channels']>4095 or configuration['startOn']>10 or not 1<=configuration['stopOn']<=12 or max(configuration['startDelayMs'],configuration['stopDelayMs'],configuration['maxDurationMs'])>3600000 or cursor!=size:raise ValueError('Invalid capture configuration')
         elif kind==11:
             cursor=4
             def string():
@@ -101,6 +109,7 @@ def decode_stream(data):
     metadata['telemetry']=dict(counters=counters,heap=heap,markers=markers,inventory=inventory,context=context,overhead=overhead,errors=errors)
     metadata['binary_version']=3;metadata['complete']=metadata['complete'] and finalized
     metadata['frame_intervals']=intervals
+    metadata['presentation']=presentation
     events.sort(key=lambda e:(e[1],e[4]));metadata['timeline']['events']=events;metadata['screenshots']['images']=shots
     metadata['duration_ns']=max(metadata['duration_ns'],max((e[1]+e[2] for e in events),default=0))
     return metadata

@@ -20,23 +20,31 @@ export default function SourceContext({
   capture?: LoadedTrace;
 }) {
   const [open, setOpen] = useState(false);
-  const [folder, setFolder] = useState<SourceFolder | null>(null),
-    [status, setStatus] = useState(''),
-    [choice, setChoice] = useState(''),
-    [preview, setPreview] = useState<{ path: string; line: number; data: Preview } | null>(null),
-    [error, setError] = useState('');
-  const input = useRef<HTMLInputElement>(null),
-    generation = useRef(0);
+  const [folder, setFolder] = useState<SourceFolder | null>(null);
+  const [status, setStatus] = useState('');
+  const [choice, setChoice] = useState('');
+  const [preview, setPreview] = useState<{
+    path: string;
+    line: number;
+    data: Preview;
+  } | null>(null);
+  const [error, setError] = useState('');
+  const input = useRef<HTMLInputElement>(null);
+  const generation = useRef(0);
   const [inventory, setInventory] = useState<{
     capture: LoadedTrace;
     data: CaptureInventory | null;
   } | null>(null);
   useEffect(() => {
-    if (!capture || !open) return;
+    if (!capture || !open) {
+      return;
+    }
     let active = true;
     void request('inventory', null)
       .then((data) => {
-        if (active) setInventory({ capture, data });
+        if (active) {
+          setInventory({ capture, data });
+        }
       })
       .catch(() => undefined);
     return () => {
@@ -49,11 +57,17 @@ export default function SourceContext({
       .then((saved) => {
         if (active && !generation.current && saved) {
           setFolder(saved);
-          setStatus('Restored local Lua snapshot; select again after changing mods.');
+          setStatus(
+            'Restored local Lua snapshot; select again after changing mods.',
+          );
         }
       })
       .catch(() => {
-        if (active) setStatus('Source cache unavailable; select a folder for this session.');
+        if (active) {
+          setStatus(
+            'Source cache unavailable; select a folder for this session.',
+          );
+        }
       });
     return () => {
       active = false;
@@ -63,9 +77,12 @@ export default function SourceContext({
     () => (metric && folder ? matchSources(metric.source, folder.files) : []),
     [metric, folder],
   );
-  const file = matches.length === 1 ? matches[0] : matches.find((f) => f.path === choice);
+  const file =
+    matches.length === 1 ? matches[0] : matches.find((f) => f.path === choice);
   useEffect(() => {
-    if (!open || !file || !metric) return;
+    if (!open || !file || !metric) {
+      return;
+    }
     let active = true;
     void request('source', { file: file.file, line: metric.line })
       .then((data) => {
@@ -84,35 +101,48 @@ export default function SourceContext({
       active = false;
     };
   }, [open, file, metric, request]);
+
   function select(files: File[]) {
-    if (!files.length) return;
+    if (!files.length) {
+      return;
+    }
     generation.current++;
     const lua = files
-        .filter((f) => f.name.toLowerCase().endsWith('.lua'))
-        .map((file) => ({ path: file.webkitRelativePath || file.name, file })),
-      name = files[0].webkitRelativePath.split('/')[0] || 'Sources',
-      next = { name, files: lua };
+      .filter((f) => f.name.toLowerCase().endsWith('.lua'))
+      .map((file) => ({ path: file.webkitRelativePath || file.name, file }));
+    const name = files[0].webkitRelativePath.split('/')[0] || 'Sources';
+    const next = { name, files: lua };
     setFolder(next);
     setChoice('');
     setError('');
     const bytes = lua.reduce((sum, f) => sum + f.file.size, 0);
     setStatus(`${lua.length.toLocaleString()} Lua files · local snapshot`);
-    if (bytes <= 64 * 1024 * 1024)
+    if (bytes <= 64 * 1024 * 1024) {
       void sourceCache(next).catch(() =>
-        setStatus('Connected for this session; could not remember sources in local storage.'),
+        setStatus(
+          'Connected for this session; could not remember sources in local storage.',
+        ),
       );
-    else {
-      setStatus('Connected for this session; Lua sources exceed the 64 MiB cache limit.');
+    } else {
+      setStatus(
+        'Connected for this session; Lua sources exceed the 64 MiB cache limit.',
+      );
       void sourceCache(null).catch(() => undefined);
     }
   }
+
   const shown =
-    preview && file && preview.path === file.path && preview.line === metric?.line
+    preview &&
+    file &&
+    preview.path === file.path &&
+    preview.line === metric?.line
       ? preview.data
       : null;
   const identity =
     inventory?.capture === capture
-      ? inventory?.data?.sources.find((s) => s.mod === metric?.mod && s.source === metric.source)
+      ? inventory?.data?.sources.find(
+          (s) => s.mod === metric?.mod && s.source === metric.source,
+        )
       : undefined;
   return (
     <details
@@ -122,7 +152,9 @@ export default function SourceContext({
     >
       <summary id="source-context-toggle">
         Source context{' '}
-        <span className="quiet">{folder ? folder.name : 'connect mods repository / folder'}</span>
+        <span className="quiet">
+          {folder ? folder.name : 'connect mods repository / folder'}
+        </span>
       </summary>
       <div className="source-header">
         <span className="toolbar-fill" />
@@ -145,7 +177,9 @@ export default function SourceContext({
               generation.current++;
               setFolder(null);
               setPreview(null);
-              void sourceCache(null).catch(() => setStatus('Could not clear source cache.'));
+              void sourceCache(null).catch(() =>
+                setStatus('Could not clear source cache.'),
+              );
             }}
           >
             Disconnect
@@ -168,17 +202,18 @@ export default function SourceContext({
       )}
       {!metric ? (
         <div className="source-note">
-          Connect the mods repository / folder, then select a callback to preview its code.
+          Connect the mods repository / folder, then select a callback to
+          preview its code.
         </div>
       ) : !folder ? (
         <div className="source-note">
-          Connect the mods repository, mods folder, or a single mod to show the actual Lua fragment
-          here. Files are read locally.
+          Connect the mods repository, mods folder, or a single mod to show the
+          actual Lua fragment here. Files are read locally.
         </div>
       ) : !matches.length ? (
         <div className="source-note">
-          No matching Lua file for {metric.source}. Choose a folder containing this mod. Dynamic Lua
-          strings have no file context.
+          No matching Lua file for {metric.source}. Choose a folder containing
+          this mod. Dynamic Lua strings have no file context.
         </div>
       ) : (
         <>
@@ -200,9 +235,12 @@ export default function SourceContext({
             </label>
           )}
           {file && (
-            <div className="source-note source-path" title={`${file.path}:${metric.line}`}>
-              {file.path}:{metric.line} · function definition; local code may have changed since
-              recording
+            <div
+              className="source-note source-path"
+              title={`${file.path}:${metric.line}`}
+            >
+              {file.path}:{metric.line} · function definition; local code may
+              have changed since recording
             </div>
           )}
           {file && (
@@ -235,7 +273,9 @@ export default function SourceContext({
                   {shown.lines.map((line, i) => (
                     <div
                       className={
-                        shown.start + i === metric.line ? 'source-line definition' : 'source-line'
+                        shown.start + i === metric.line
+                          ? 'source-line definition'
+                          : 'source-line'
                       }
                       key={shown.start + i}
                     >
@@ -244,7 +284,9 @@ export default function SourceContext({
                     </div>
                   ))}
                   {(metric.line < 1 || metric.line > shown.total) && (
-                    <div className="source-note">Recorded line is outside this file.</div>
+                    <div className="source-note">
+                      Recorded line is outside this file.
+                    </div>
                   )}
                 </>
               ) : (

@@ -1,4 +1,5 @@
 import { frameDetail } from '../src/frame-detail.ts';
+import { presentationCapture } from '../src/presentation.ts';
 import type { FrameCost } from '../src/frame-detail.ts';
 import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -17,10 +18,18 @@ import {
 } from '../src/analysis.ts';
 import { diagnoseCapture } from '../src/diagnosis.ts';
 import { matchSources } from '../src/source-files.ts';
-import type { Metric, Query, Row, Telemetry, TraceEvent } from '../src/types.ts';
+import type {
+  Metric,
+  Query,
+  Row,
+  Telemetry,
+  TraceEvent,
+} from '../src/types.ts';
 
 process.stdout.on('error', (error: NodeJS.ErrnoException) => {
-  if (error.code === 'EPIPE') process.exit(0);
+  if (error.code === 'EPIPE') {
+    process.exit(0);
+  }
   throw error;
 });
 
@@ -38,6 +47,7 @@ const commands = [
   'tree',
   'markers',
   'telemetry',
+  'presentation',
   'source',
   'screenshots',
   'screenshot',
@@ -79,10 +89,10 @@ interface Options {
   nonInteractive?: boolean;
   windowMs?: number;
 }
-const commonOptions = ['--format', '--max-read-mib', '--non-interactive'],
-  range = ['--start-ms', '--end-ms'],
-  filters = ['--search', '--mod', '--hook', '--metric'],
-  ranking = ['--top', '--sort', '--ascending', '--descending'];
+const commonOptions = ['--format', '--max-read-mib', '--non-interactive'];
+const range = ['--start-ms', '--end-ms'];
+const filters = ['--search', '--mod', '--hook', '--metric'];
+const ranking = ['--top', '--sort', '--ascending', '--descending'];
 const allowed: Record<Command, string[]> = {
   list: ['--top'],
   info: [],
@@ -92,11 +102,19 @@ const allowed: Record<Command, string[]> = {
   rank: [...range, ...filters, ...ranking, '--group', '--depth', '--children'],
   metrics: [...range, ...filters, ...ranking, '--errors-only'],
   events: [...range, ...filters, ...ranking, '--minimum-us', '--errors-only'],
-  frames: [...range, ...ranking, '--clock', '--minimum-us', '--summary-only', '--search'],
+  frames: [
+    ...range,
+    ...ranking,
+    '--clock',
+    '--minimum-us',
+    '--summary-only',
+    '--search',
+  ],
   frame: ['--id', '--clock', '--top'],
   tree: [...range, ...filters, ...ranking, '--depth', '--children'],
   markers: [...range, '--top'],
   telemetry: [...range, '--samples', '--top'],
+  presentation: [...range, ...ranking],
   source: ['--metric', '--mods', '--source-file', '--before', '--after'],
   screenshots: [...range, '--top'],
   screenshot: ['--index', '--output'],
@@ -114,6 +132,7 @@ Commands: ${commands.join(', ')}
   rank             Mod -> hook -> function rankings; native totals or retained range
   events/tree      Exact retained calls and ancestry (select a range for large traces)
   frames/summary   Slowest 500 intervals / FPS, UPS and percentiles
+  presentation    SwapBuffers intervals, wall-time boundaries and raw thread cycles
   frame --id N     Matched reference comparison and callback breakdown of one interval
   source           Lua context: --metric ID --mods FOLDER [--source-file FILE]
   screenshots      Screenshot timestamps/dimensions; screenshot exports one PNG
@@ -139,7 +158,12 @@ Self time includes native APIs and subtracts nested instrumented callbacks. FPS 
 Serve request: {"id":1,"command":"rank","args":["--start-ms","1000","--end-ms","1100","--group","hooks"]}
 `;
 
-function number(value: string, name: string, maximum = Number.MAX_SAFE_INTEGER, whole = false) {
+function number(
+  value: string,
+  name: string,
+  maximum = Number.MAX_SAFE_INTEGER,
+  whole = false,
+) {
   const n = Number(value);
   if (
     !value.trim() ||
@@ -147,19 +171,29 @@ function number(value: string, name: string, maximum = Number.MAX_SAFE_INTEGER, 
     n < 0 ||
     n > maximum ||
     (whole && !Number.isSafeInteger(n))
-  )
+  ) {
     throw Error(`Invalid ${name}: ${value}`);
+  }
   return n;
 }
-function choice<T extends string>(value: string, values: readonly T[], name: string): T {
-  if (!values.includes(value as T)) throw Error(`Invalid ${name}; choose ${values.join(', ')}.`);
+
+function choice<T extends string>(
+  value: string,
+  values: readonly T[],
+  name: string,
+): T {
+  if (!values.includes(value as T)) {
+    throw Error(`Invalid ${name}; choose ${values.join(', ')}.`);
+  }
   return value as T;
 }
+
 function parse(args: string[]): Options {
-  const command = choice(args[0] ?? '', commands, 'command'),
-    capture = args[1];
-  if (!capture || capture.startsWith('--'))
+  const command = choice(args[0] ?? '', commands, 'command');
+  const capture = args[1];
+  if (!capture || capture.startsWith('--')) {
     throw Error('Specify a capture path after the command.');
+  }
   const result: Options = {
     command,
     capture,
@@ -184,7 +218,9 @@ function parse(args: string[]): Options {
   const seen = new Set<string>();
   for (let i = 2; i < args.length; i++) {
     const option = args[i];
-    if (seen.has(option)) throw Error(`Duplicate option: ${option}`);
+    if (seen.has(option)) {
+      throw Error(`Duplicate option: ${option}`);
+    }
     seen.add(option);
     if (option === '--ascending') {
       result.ascending = true;
@@ -211,7 +247,9 @@ function parse(args: string[]): Options {
       continue;
     }
     const value = args[++i];
-    if (value === undefined) throw Error(`Missing value for ${option}.`);
+    if (value === undefined) {
+      throw Error(`Missing value for ${option}.`);
+    }
     switch (option) {
       case '--start-ms':
         result.start = number(value, option);
@@ -221,7 +259,9 @@ function parse(args: string[]): Options {
         break;
       case '--top':
         result.top = number(value, option, 500, true);
-        if (!result.top) throw Error('--top must be positive.');
+        if (!result.top) {
+          throw Error('--top must be positive.');
+        }
         break;
       case '--depth':
         result.depth = number(value, option, 8, true);
@@ -251,7 +291,8 @@ function parse(args: string[]): Options {
         result.minimumUs = number(value, option, 10000000, true);
         break;
       case '--clock':
-        result.clock = choice(value, ['render', 'update'], option) === 'render' ? 2 : 1;
+        result.clock =
+          choice(value, ['render', 'update'], option) === 'render' ? 2 : 1;
         break;
       case '--mods':
         result.mods = value;
@@ -267,11 +308,15 @@ function parse(args: string[]): Options {
         break;
       case '--window-ms':
         result.windowMs = number(value, option, 60000, true);
-        if (result.windowMs < 100) throw Error('--window-ms must be at least 100.');
+        if (result.windowMs < 100) {
+          throw Error('--window-ms must be at least 100.');
+        }
         break;
       case '--samples':
         result.samples = number(value, option, 1000, true);
-        if (!result.samples) throw Error('--samples must be positive.');
+        if (!result.samples) {
+          throw Error('--samples must be positive.');
+        }
         break;
       case '--id':
         result.frameID = number(value, option, 0xffffffff, true);
@@ -292,33 +337,52 @@ function parse(args: string[]): Options {
         throw Error(`Unknown option: ${option}`);
     }
   }
-  for (const option of seen)
-    if (!commonOptions.includes(option) && !allowed[command].includes(option))
+  for (const option of seen) {
+    if (!commonOptions.includes(option) && !allowed[command].includes(option)) {
       throw Error(`${option} is not supported by ${command}.`);
-  if (command === 'frame' && result.frameID === undefined)
+    }
+  }
+  if (command === 'frame' && result.frameID === undefined) {
     throw Error('frame requires --id from the frames/diagnose output.');
-  if (command === 'serve' && result.format !== 'json')
+  }
+  if (command === 'serve' && result.format !== 'json') {
     throw Error('Serve replies are always JSON.');
-  if (command === 'prepare' && !result.write)
-    throw Error('prepare requires --write to update the optional analysis in this recording.');
-  if (seen.has('--ascending') && seen.has('--descending'))
+  }
+  if (command === 'prepare' && !result.write) {
+    throw Error(
+      'prepare requires --write to update the optional analysis in this recording.',
+    );
+  }
+  if (seen.has('--ascending') && seen.has('--descending')) {
     throw Error('Choose one sort direction.');
-  if (result.errorsOnly && !['events', 'metrics'].includes(command))
+  }
+  if (result.errorsOnly && !['events', 'metrics'].includes(command)) {
     throw Error('--errors-only is supported for events and metrics.');
-  if (result.minimumUs && !['events', 'frames', 'report'].includes(command))
-    throw Error('--minimum-us applies to events or frame intervals, not aggregate rankings.');
-  if (result.output && command !== 'screenshot')
-    throw Error('--output is reserved for screenshot export; redirect stdout to save reports.');
+  }
+  if (result.minimumUs && !['events', 'frames', 'report'].includes(command)) {
+    throw Error(
+      '--minimum-us applies to events or frame intervals, not aggregate rankings.',
+    );
+  }
+  if (result.output && command !== 'screenshot') {
+    throw Error(
+      '--output is reserved for screenshot export; redirect stdout to save reports.',
+    );
+  }
   return result;
 }
+
 function query(stream: StreamCapture, options: Options): Query {
-  const start = options.start ?? 0,
-    end = options.end ?? stream.duration;
+  const start = options.start ?? 0;
+  const end = options.end ?? stream.duration;
   if (
     (start >= end && !(start === 0 && end === 0 && stream.duration === 0)) ||
     end > stream.duration + 1e-6
-  )
-    throw Error(`Range must satisfy 0 <= start < end <= ${stream.duration} ms.`);
+  ) {
+    throw Error(
+      `Range must satisfy 0 <= start < end <= ${stream.duration} ms.`,
+    );
+  }
   return {
     start,
     end,
@@ -336,6 +400,7 @@ function query(stream: StreamCapture, options: Options): Query {
     metric: options.metric,
   };
 }
+
 function metricIdentity(metric: Metric) {
   return {
     id: metric.id,
@@ -347,6 +412,7 @@ function metricIdentity(metric: Metric) {
     line: metric.line,
   };
 }
+
 function wireMetric(metric: Metric) {
   return {
     ...metricIdentity(metric),
@@ -358,15 +424,24 @@ function wireMetric(metric: Metric) {
     average_ms: metric.mean_ns / 1e6,
   };
 }
-function wireRows(rows: Row[], options: Options, depth = options.depth): unknown[] {
+
+function wireRows(
+  rows: Row[],
+  options: Options,
+  depth = options.depth,
+): unknown[] {
   let budget = 1000;
   const visit = (items: Row[], level: number, limit: number): unknown[] => {
     const result: unknown[] = [];
     for (const row of items.slice(0, limit)) {
-      if (budget <= 0) break;
+      if (budget <= 0) {
+        break;
+      }
       budget--;
       const children =
-        level > 0 && row.children ? visit(row.children, level - 1, options.children) : undefined;
+        level > 0 && row.children
+          ? visit(row.children, level - 1, options.children)
+          : undefined;
       result.push({
         key: row.key,
         label: row.label,
@@ -382,13 +457,16 @@ function wireRows(rows: Row[], options: Options, depth = options.depth): unknown
         average_ms: row.calls ? row.inclusive / row.calls : 0,
         children_count: row.children?.length,
         children,
-        truncated: !!row.children && (!children || children.length < row.children.length),
+        truncated:
+          !!row.children &&
+          (!children || children.length < row.children.length),
       });
     }
     return result;
   };
   return visit(rows, depth, options.top);
 }
+
 function wireEvent(event: TraceEvent, stream: StreamCapture) {
   const metric = stream.metrics.get(event.metric)!;
   return {
@@ -407,7 +485,9 @@ function wireEvent(event: TraceEvent, stream: StreamCapture) {
     error: event.error,
   };
 }
+
 const channelNames: Record<number, string> = {
+  16: 'presentation',
   1: 'aggregate_snapshots',
   2: 'callbacks',
   3: 'screenshots',
@@ -424,10 +504,17 @@ const channelNames: Record<number, string> = {
   14: 'lua_errors',
   15: 'capture_configuration',
 };
+
 function info(stream: StreamCapture, file: CaptureFile) {
   const channels = new Map<
     number,
-    { type: number; name: string; blocks: number; records: number; payload_bytes: number }
+    {
+      type: number;
+      name: string;
+      blocks: number;
+      records: number;
+      payload_bytes: number;
+    }
   >();
   for (const block of stream.blocks) {
     let channel = channels.get(block.type);
@@ -472,12 +559,14 @@ function info(stream: StreamCapture, file: CaptureFile) {
           events: stream.analysis.overview.events.length,
         }
       : null,
-    validation: 'index and requested payloads; use verify for all native payload CRCs',
+    validation:
+      'index and requested payloads; use verify for all native payload CRCs',
     channels: [...channels.values()],
     loss_intervals: d.losses,
     limitations: d.limitations,
   };
 }
+
 function wireSummary(summary: Awaited<ReturnType<typeof summaryCapture>>) {
   const clock = (value: typeof summary.render) => ({
     ...value,
@@ -491,8 +580,11 @@ function wireSummary(summary: Awaited<ReturnType<typeof summaryCapture>>) {
   });
   return { render: clock(summary.render), update: clock(summary.update) };
 }
+
 function inventoryView(inventory: Telemetry['inventory'], limit: number) {
-  if (!inventory) return null;
+  if (!inventory) {
+    return null;
+  }
   const { sources, ...environment } = inventory;
   return {
     ...environment,
@@ -502,20 +594,25 @@ function inventoryView(inventory: Telemetry['inventory'], limit: number) {
     sources_truncated: sources.length > limit,
   };
 }
+
 function telemetryStats(data: Telemetry) {
-  let processTime = 0,
-    processCPU = 0,
-    threadTime = 0,
-    threadCPU = 0,
-    processMax: number | null = null,
-    threadMax: number | null = null;
+  let processTime = 0;
+  let processCPU = 0;
+  let threadTime = 0;
+  let threadCPU = 0;
+  let processMax: number | null = null;
+  let threadMax: number | null = null;
   for (let i = 1; i < data.counters.length; i++) {
-    const a = data.counters[i - 1],
-      b = data.counters[i],
-      duration = b.time - a.time;
-    if (duration <= 0) continue;
-    const process = b.processUser + b.processKernel - a.processUser - a.processKernel,
-      thread = b.threadUser + b.threadKernel - a.threadUser - a.threadKernel;
+    const a = data.counters[i - 1];
+    const b = data.counters[i];
+    const duration = b.time - a.time;
+    if (duration <= 0) {
+      continue;
+    }
+    const process =
+      b.processUser + b.processKernel - a.processUser - a.processKernel;
+    const thread =
+      b.threadUser + b.threadKernel - a.threadUser - a.threadKernel;
     if (a.valid & 2 && b.valid & 2 && process >= 0) {
       processTime += duration;
       processCPU += process;
@@ -537,68 +634,100 @@ function telemetryStats(data: Telemetry) {
     private_commit_sample_max_bytes: validMemory.length
       ? Math.max(...validMemory.map((s) => s.privateBytes))
       : null,
-    lua_heap_sample_max_bytes: data.heap.length ? Math.max(...data.heap.map((s) => s.bytes)) : null,
-    process_mean_cpu_percent_one_core: processTime ? processCPU / processTime / 100 : null,
+    lua_heap_sample_max_bytes: data.heap.length
+      ? Math.max(...data.heap.map((s) => s.bytes))
+      : null,
+    process_mean_cpu_percent_one_core: processTime
+      ? processCPU / processTime / 100
+      : null,
     process_max_sample_cpu_percent_one_core: processMax,
-    lua_thread_mean_cpu_percent_one_core: threadTime ? threadCPU / threadTime / 100 : null,
+    lua_thread_mean_cpu_percent_one_core: threadTime
+      ? threadCPU / threadTime / 100
+      : null,
     lua_thread_max_sample_cpu_percent_one_core: threadMax,
     delta_observation_ms: processTime,
     includes_preceding_baseline: true,
   };
 }
+
 async function source(stream: StreamCapture, options: Options) {
-  if (options.metric === undefined)
-    throw Error('source requires --metric ID. Use metrics or rank --group callbacks to find IDs.');
+  if (options.metric === undefined) {
+    throw Error(
+      'source requires --metric ID. Use metrics or rank --group callbacks to find IDs.',
+    );
+  }
   const metric = stream.metrics.get(options.metric);
-  if (!metric) throw Error('Unknown metric ID.');
-  if (!options.mods)
-    throw Error('source requires --mods pointing to a local mod, mods, game or repository folder.');
-  const root = path.resolve(options.mods),
-    candidates: { path: string }[] = [];
+  if (!metric) {
+    throw Error('Unknown metric ID.');
+  }
+  if (!options.mods) {
+    throw Error(
+      'source requires --mods pointing to a local mod, mods, game or repository folder.',
+    );
+  }
+  const root = path.resolve(options.mods);
+  const candidates: { path: string }[] = [];
   let entries = 0;
+
   async function walk(dir: string, depth = 0) {
-    if (depth > 32) throw Error('Source folder exceeds maximum nesting depth.');
+    if (depth > 32) {
+      throw Error('Source folder exceeds maximum nesting depth.');
+    }
     for (const entry of await readdir(dir, { withFileTypes: true })) {
-      if (++entries > 100000)
-        throw Error('Source folder exceeds 100,000 entries. Select a narrower mod folder.');
-      if (entry.isSymbolicLink() || ['.git', 'node_modules', 'build', 'dist'].includes(entry.name))
+      if (++entries > 100000) {
+        throw Error(
+          'Source folder exceeds 100,000 entries. Select a narrower mod folder.',
+        );
+      }
+      if (
+        entry.isSymbolicLink() ||
+        ['.git', 'node_modules', 'build', 'dist'].includes(entry.name)
+      ) {
         continue;
+      }
       const target = path.join(dir, entry.name);
-      if (entry.isDirectory()) await walk(target, depth + 1);
-      else if (entry.isFile() && entry.name.toLowerCase().endsWith('.lua'))
+      if (entry.isDirectory()) {
+        await walk(target, depth + 1);
+      } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.lua')) {
         candidates.push({ path: target });
+      }
     }
   }
+
   await walk(root);
-  const matches = matchSources(metric.source, candidates),
-    selected = options.sourceFile
-      ? matches.find(
-          (item) =>
-            path.resolve(item.path).toLowerCase() ===
-            path.resolve(options.sourceFile!).toLowerCase(),
-        )
-      : matches.length === 1
-        ? matches[0]
-        : undefined;
-  if (!selected)
+  const matches = matchSources(metric.source, candidates);
+  const selected = options.sourceFile
+    ? matches.find(
+        (item) =>
+          path.resolve(item.path).toLowerCase() ===
+          path.resolve(options.sourceFile!).toLowerCase(),
+      )
+    : matches.length === 1
+      ? matches[0]
+      : undefined;
+  if (!selected) {
     return {
       status: matches.length ? 'ambiguous' : 'not_found',
       metric: wireMetric(metric),
       candidates: matches.map((item) => item.path),
       hint: 'Ambiguous matches require --source-file with one of these paths.',
     };
+  }
   const size = (await stat(selected.path)).size;
-  if (size > 4 * 1024 * 1024) throw Error('Source file exceeds 4 MiB.');
-  const bytes = await readFile(selected.path),
-    lines = bytes.toString('utf8').split(/\r?\n/),
-    line = Math.max(1, Math.min(lines.length, metric.line)),
-    start = Math.max(1, line - options.before),
-    end = Math.min(lines.length, line + options.after),
-    hash = createHash('sha256').update(bytes).digest('hex');
-  const inventory = (await stream.telemetry(0, stream.duration)).inventory,
-    captured = inventory?.sources.find(
-      (item) => item.mod === metric.mod && item.source === metric.source && item.sha256,
-    );
+  if (size > 4 * 1024 * 1024) {
+    throw Error('Source file exceeds 4 MiB.');
+  }
+  const bytes = await readFile(selected.path);
+  const lines = bytes.toString('utf8').split(/\r?\n/);
+  const line = Math.max(1, Math.min(lines.length, metric.line));
+  const start = Math.max(1, line - options.before);
+  const end = Math.min(lines.length, line + options.after);
+  const hash = createHash('sha256').update(bytes).digest('hex');
+  const inventory = (await stream.telemetry(0, stream.duration)).inventory;
+  const captured = inventory?.sources.find(
+    (item) =>
+      item.mod === metric.mod && item.source === metric.source && item.sha256,
+  );
   return {
     status: 'found',
     metric: wireMetric(metric),
@@ -612,35 +741,44 @@ async function source(stream: StreamCapture, options: Options) {
       : 'capture_hash_unavailable',
     total_lines: lines.length,
     definition_line: metric.line,
-    lines: lines
-      .slice(start - 1, end)
-      .map((text, i) => ({ line: start + i, text, definition: start + i === metric.line })),
+    lines: lines.slice(start - 1, end).map((text, i) => ({
+      line: start + i,
+      text,
+      definition: start + i === metric.line,
+    })),
   };
 }
+
 async function screenshots(stream: StreamCapture, options: Options) {
   const result = [];
   let index = 0;
-  for (const block of stream.blocks)
+  for (const block of stream.blocks) {
     if (block.type === 3) {
       const id = index++;
-      if (options.command === 'screenshot' && id !== options.index) continue;
-      const payload = await stream.payload(block),
-        view = new DataView(payload),
-        time = view.getFloat64(0, true);
+      if (options.command === 'screenshot' && id !== options.index) {
+        continue;
+      }
+      const payload = await stream.payload(block);
+      const view = new DataView(payload);
+      const time = view.getFloat64(0, true);
       if (
         options.command !== 'screenshot' &&
-        (time / 1e6 < (options.start ?? 0) || time / 1e6 >= (options.end ?? stream.duration))
-      )
+        (time / 1e6 < (options.start ?? 0) ||
+          time / 1e6 >= (options.end ?? stream.duration))
+      ) {
         continue;
+      }
       if (
         view.byteLength < 28 ||
         view.getUint32(12, true) !== 1 ||
         view.getUint32(16, true) !== view.byteLength - 20
-      )
+      ) {
         throw Error('Invalid screenshot layout.');
+      }
       const png = new Uint8Array(payload, 20);
-      if (![137, 80, 78, 71, 13, 10, 26, 10].every((n, i) => png[i] === n))
+      if (![137, 80, 78, 71, 13, 10, 26, 10].every((n, i) => png[i] === n)) {
         throw Error('Invalid screenshot PNG.');
+      }
       const row = {
         index: id,
         time_ms: time / 1e6,
@@ -650,24 +788,33 @@ async function screenshots(stream: StreamCapture, options: Options) {
       };
       result.push(row);
       if (options.command === 'screenshot') {
-        if (!options.output) throw Error('screenshot requires --output FILE.png.');
+        if (!options.output) {
+          throw Error('screenshot requires --output FILE.png.');
+        }
         await writeFile(options.output, png, { flag: 'wx' });
         return { ...row, path: path.resolve(options.output) };
       }
     }
-  if (options.command === 'screenshot')
-    throw Error('Screenshot index not found. Use screenshots to list available images.');
+  }
+  if (options.command === 'screenshot') {
+    throw Error(
+      'Screenshot index not found. Use screenshots to list available images.',
+    );
+  }
   return { count: result.length, rows: result.slice(0, options.top) };
 }
+
 async function execute(
   stream: StreamCapture,
   file: CaptureFile,
   options: Options,
 ): Promise<unknown> {
-  // Event/frame sort fields differ from rank fields; range validation stays shared.
+  // Event, frame and presentation sorts have their own fields.
   const q = query(stream, {
     ...options,
-    sort: ['events', 'frames'].includes(options.command) ? '' : options.sort,
+    sort: ['events', 'frames', 'presentation'].includes(options.command)
+      ? ''
+      : options.sort,
   });
   switch (options.command) {
     case 'list':
@@ -676,24 +823,35 @@ async function execute(
       return info(stream, file);
     case 'frame': {
       let selected;
-      for await (const f of stream.intervals(0, stream.duration))
+      for await (const f of stream.intervals(0, stream.duration)) {
         if (f.kind === options.clock && f.id === options.frameID) {
-          if (selected) throw Error('Frame ID is ambiguous across threads.');
+          if (selected) {
+            throw Error('Frame ID is ambiguous across threads.');
+          }
           selected = f;
         }
-      if (!selected) throw Error('Frame ID not found for this clock.');
+      }
+      if (!selected) {
+        throw Error('Frame ID not found for this clock.');
+      }
       const detail = await frameDetail(stream, selected);
       let count = 0;
       const wire = (rows: FrameCost[]): unknown[] =>
         rows.slice(0, options.top).flatMap((row) => {
-          if (count++ >= 500) return [];
+          if (count++ >= 500) {
+            return [];
+          }
           return [
             {
               label: row.label,
-              metric: row.metric ? metricIdentity(stream.metrics.get(row.metric)!) : null,
+              metric: row.metric
+                ? metricIdentity(stream.metrics.get(row.metric)!)
+                : null,
               self_ms: row.self,
               reference_self_ms: detail.baseline ? row.baselineSelf : null,
-              extra_self_ms: detail.baseline ? row.self - row.baselineSelf : null,
+              extra_self_ms: detail.baseline
+                ? row.self - row.baselineSelf
+                : null,
               calls: row.calls,
               reference_calls: detail.baseline ? row.baselineCalls : null,
               ...(row.children ? { children: wire(row.children) } : {}),
@@ -701,8 +859,10 @@ async function execute(
           ];
         });
       const delta =
-          detail.baselineWall === null ? null : detail.frame.duration - detail.baselineWall,
-        self = detail.self - detail.baselineSelf;
+        detail.baselineWall === null
+          ? null
+          : detail.frame.duration - detail.baselineWall;
+      const self = detail.self - detail.baselineSelf;
       return {
         ...detail,
         costs: wire(detail.costs),
@@ -728,12 +888,16 @@ async function execute(
       return {
         ...result,
         rows: wireRows(result.rows, options),
-        population: q.range ? 'retained_calls_by_start' : 'native_unfiltered_aggregates',
+        population: q.range
+          ? 'retained_calls_by_start'
+          : 'native_unfiltered_aggregates',
       };
     }
     case 'metrics': {
       const metrics = (
-        q.range ? await stream.rankMetrics(q.start, q.end) : [...stream.metrics.values()]
+        q.range
+          ? await stream.rankMetrics(q.start, q.end)
+          : [...stream.metrics.values()]
       ).filter((m) => matchesQuery(m, q) && (!options.errorsOnly || m.errors));
       const field = (m: Metric) =>
         q.sort === 'calls'
@@ -754,7 +918,10 @@ async function execute(
                 )
               : field(a) - field(b)) || a.id - b.id,
       );
-      return { count: metrics.length, rows: metrics.slice(0, options.top).map(wireMetric) };
+      return {
+        count: metrics.length,
+        rows: metrics.slice(0, options.top).map(wireMetric),
+      };
     }
     case 'events': {
       const sort = choice(
@@ -764,7 +931,12 @@ async function execute(
       );
       const result = await eventsCapture(
         stream,
-        { ...q, sort, descending: !options.ascending, errorsOnly: options.errorsOnly },
+        {
+          ...q,
+          sort,
+          descending: !options.ascending,
+          errorsOnly: options.errorsOnly,
+        },
         options.top,
         options.minimumUs,
       );
@@ -776,10 +948,11 @@ async function execute(
       };
     }
     case 'frames': {
-      if (options.mod || options.hook || options.metric !== undefined)
+      if (options.mod || options.hook || options.metric !== undefined) {
         throw Error(
           'Frame attribution covers all callbacks. Use --search for the costliest activity, or rank the selected frame range.',
         );
+      }
       const result = await framesCapture(
         stream,
         {
@@ -798,7 +971,9 @@ async function execute(
         'frame sort',
       );
       result.rows.sort(
-        (a, b) => (options.ascending ? 1 : -1) * (a[sort] - b[sort]) || a.start - b.start,
+        (a, b) =>
+          (options.ascending ? 1 : -1) * (a[sort] - b[sort]) ||
+          a.start - b.start,
       );
       return {
         ...result,
@@ -819,7 +994,9 @@ async function execute(
           costliest_mod: options.summaryOnly ? null : row.worstMod,
           mod_self_ms: options.summaryOnly ? null : row.modSelf,
           costliest_metric:
-            row.worstMetric === null ? null : metricIdentity(stream.metrics.get(row.worstMetric)!),
+            row.worstMetric === null
+              ? null
+              : metricIdentity(stream.metrics.get(row.worstMetric)!),
           metric_self_ms: options.summaryOnly ? null : row.metricSelf,
         })),
         attribution: !options.summaryOnly,
@@ -828,12 +1005,17 @@ async function execute(
       };
     }
     case 'tree': {
-      if (!q.range && stream.count > 1000000)
+      if (!q.range && stream.count > 1000000) {
         throw Error(
           'For large recordings tree requires --start-ms / --end-ms. Start with report to find useful ranges.',
         );
+      }
       const result = await treeCapture(stream, q, Math.min(1000, options.top));
-      return { count: result.count, rows: wireRows(result.rows, options), node_limit: options.top };
+      return {
+        count: result.count,
+        rows: wireRows(result.rows, options),
+        node_limit: options.top,
+      };
     }
     case 'markers': {
       const rows = (await stream.lifecycleMarkers())
@@ -857,6 +1039,20 @@ async function execute(
         identity: 'observed_transition_ordinals_not_game_ids',
       };
     }
+    case 'presentation': {
+      const sort = choice(
+        options.sort || 'duration',
+        ['start', 'duration', 'swap', 'readback', 'outside', 'cycles'],
+        'presentation sort',
+      );
+      return presentationCapture(stream, {
+        start: q.start,
+        end: q.end,
+        sort,
+        descending: !options.ascending,
+        limit: options.top,
+      });
+    }
     case 'telemetry': {
       const data = await stream.telemetry(q.start, q.end);
       return {
@@ -877,8 +1073,8 @@ async function execute(
     case 'screenshot':
       return screenshots(stream, options);
     case 'verify': {
-      let blocks = 0,
-        payloadBytes = 0;
+      let blocks = 0;
+      let payloadBytes = 0;
       stream.onProgress({
         stage: 'Verifying capture',
         completed: 0,
@@ -899,18 +1095,20 @@ async function execute(
           header.getBigUint64(24, true) !== BigInt(block.minimum) ||
           header.getBigUint64(32, true) !== BigInt(block.maximum) ||
           header.getUint32(40, true) !== block.crc
-        )
+        ) {
           throw Error(`Header/index mismatch at ${block.offset}.`);
+        }
         await stream.payload(block);
         blocks++;
         payloadBytes += block.bytes;
-        if (blocks % 256 === 0 || blocks === stream.blocks.length)
+        if (blocks % 256 === 0 || blocks === stream.blocks.length) {
           stream.onProgress({
             stage: 'Verifying capture',
             completed: blocks,
             total: stream.blocks.length,
             percent: Math.floor((blocks / stream.blocks.length) * 100),
           });
+        }
       }
       return {
         blocks,
@@ -921,17 +1119,35 @@ async function execute(
       };
     }
     case 'report': {
-      const data = await stream.telemetry(q.start, q.end),
-        frames = await framesCapture(
-          stream,
-          { kind: 2, start: q.start, end: q.end, minimumUs: options.minimumUs, search: '' },
-          !options.summaryOnly,
-          Math.min(options.top, 10),
-        );
-      const mods = await rankCapture(stream, { ...q, mode: 'mods' }, options.top),
-        hooks = await rankCapture(stream, { ...q, mode: 'hooks' }, options.top),
-        callbacks = await rankCapture(stream, { ...q, mode: 'callbacks' }, options.top),
-        summary = await summaryCapture(stream, q.start, q.end);
+      const data = await stream.telemetry(q.start, q.end);
+      const frames = await framesCapture(
+        stream,
+        {
+          kind: 2,
+          start: q.start,
+          end: q.end,
+          minimumUs: options.minimumUs,
+          search: '',
+        },
+        !options.summaryOnly,
+        Math.min(options.top, 10),
+      );
+      const mods = await rankCapture(
+        stream,
+        { ...q, mode: 'mods' },
+        options.top,
+      );
+      const hooks = await rankCapture(
+        stream,
+        { ...q, mode: 'hooks' },
+        options.top,
+      );
+      const callbacks = await rankCapture(
+        stream,
+        { ...q, mode: 'callbacks' },
+        options.top,
+      );
+      const summary = await summaryCapture(stream, q.start, q.end);
       return {
         recording: info(stream, file),
         summary: wireSummary(summary),
@@ -953,7 +1169,9 @@ async function execute(
           start_ms: f.start,
           duration_ms: f.duration,
           thread: f.thread,
-          markers: data.markers.filter((m) => m.time >= f.start && m.time < f.start + f.duration),
+          markers: data.markers.filter(
+            (m) => m.time >= f.start && m.time < f.start + f.duration,
+          ),
           retained_callback_self_ms: options.summaryOnly ? null : f.self,
           calls: options.summaryOnly ? null : f.calls,
           costliest_mod: options.summaryOnly ? null : f.worstMod,
@@ -986,17 +1204,23 @@ async function execute(
       };
     }
     case 'prepare':
-      throw Error('prepare is available only outside a read-only capture session.');
+      throw Error(
+        'prepare is available only outside a read-only capture session.',
+      );
     case 'serve':
       throw Error('Nested serve is unavailable.');
   }
 }
 
 function table(result: unknown): string {
-  if (!result || typeof result !== 'object') return JSON.stringify(result);
-  const value = result as Record<string, unknown>,
-    rows = value.rows;
-  if (!Array.isArray(rows) || !rows.length) return JSON.stringify(result, null, 2);
+  if (!result || typeof result !== 'object') {
+    return JSON.stringify(result);
+  }
+  const value = result as Record<string, unknown>;
+  const rows = value.rows;
+  if (!Array.isArray(rows) || !rows.length) {
+    return JSON.stringify(result, null, 2);
+  }
   const display = (value: unknown) =>
     typeof value === 'number'
       ? Number.isInteger(value)
@@ -1012,21 +1236,39 @@ function table(result: unknown): string {
     (key) => key !== 'key' && records.some((row) => display(row[key])),
   );
   const widths = keys.map((key) =>
-    Math.min(80, Math.max(key.length, ...records.map((row) => display(row[key]).length))),
+    Math.min(
+      80,
+      Math.max(key.length, ...records.map((row) => display(row[key]).length)),
+    ),
   );
   const line = (values: string[]) =>
-    values.map((value, i) => value.slice(0, widths[i]).padEnd(widths[i])).join('  ');
+    values
+      .map((value, i) => value.slice(0, widths[i]).padEnd(widths[i]))
+      .join('  ');
   const output = [line(keys)];
+
   function visit(row: Record<string, unknown>, depth = 0) {
     output.push(
-      line(keys.map((key) => (key === 'label' ? '  '.repeat(depth) : '') + display(row[key]))),
+      line(
+        keys.map(
+          (key) =>
+            (key === 'label' ? '  '.repeat(depth) : '') + display(row[key]),
+        ),
+      ),
     );
-    if (Array.isArray(row.children))
-      for (const child of row.children as Record<string, unknown>[]) visit(child, depth + 1);
+    if (Array.isArray(row.children)) {
+      for (const child of row.children as Record<string, unknown>[]) {
+        visit(child, depth + 1);
+      }
+    }
   }
-  for (const row of records) visit(row);
+
+  for (const row of records) {
+    visit(row);
+  }
   return output.join('\n');
 }
+
 async function main() {
   const args = process.argv.slice(2);
   if (args[0] === '--describe') {
@@ -1083,35 +1325,44 @@ async function main() {
     console.log(help);
     return;
   }
-  const options = parse(args),
-    begin = performance.now();
+  const options = parse(args);
+  const begin = performance.now();
   if (options.command === 'list') {
-    const entries = (await readdir(options.capture, { withFileTypes: true })).filter(
-      (entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.isaacprof'),
+    const entries = (
+      await readdir(options.capture, { withFileTypes: true })
+    ).filter(
+      (entry) =>
+        entry.isFile() && entry.name.toLowerCase().endsWith('.isaacprof'),
     );
-    if (entries.length > 10000) throw Error('Capture directory exceeds 10,000 recordings.');
+    if (entries.length > 10000) {
+      throw Error('Capture directory exceeds 10,000 recordings.');
+    }
     const rows = [];
     for (let at = 0; at < entries.length; at += 32) {
       const batch = await Promise.all(
         entries.slice(at, at + 32).map(async (entry) => {
-          const target = path.resolve(options.capture, entry.name),
-            info = await stat(target);
+          const target = path.resolve(options.capture, entry.name);
+          const info = await stat(target);
           const captured = recordingTimestamp(entry.name);
           return {
             name: entry.name,
             path: target,
             bytes: info.size,
             modified: info.mtime.toISOString(),
-            recorded_at_utc: captured === null ? null : new Date(captured).toISOString(),
+            recorded_at_utc:
+              captured === null ? null : new Date(captured).toISOString(),
             sort_time_utc: new Date(captured ?? info.mtimeMs).toISOString(),
-            time_source: captured === null ? 'filesystem_modified' : 'filename_utc',
+            time_source:
+              captured === null ? 'filesystem_modified' : 'filename_utc',
           };
         }),
       );
       rows.push(...batch);
     }
     rows.sort(
-      (a, b) => b.sort_time_utc.localeCompare(a.sort_time_utc) || a.path.localeCompare(b.path),
+      (a, b) =>
+        b.sort_time_utc.localeCompare(a.sort_time_utc) ||
+        a.path.localeCompare(b.path),
     );
     const result = { count: rows.length, rows: rows.slice(0, options.top) };
     console.log(
@@ -1123,7 +1374,10 @@ async function main() {
               ok: true,
               command: 'list',
               result,
-              diagnostics: { elapsed_ms: performance.now() - begin, read_bytes: 0 },
+              diagnostics: {
+                elapsed_ms: performance.now() - begin,
+                read_bytes: 0,
+              },
             },
             null,
             2,
@@ -1136,12 +1390,22 @@ async function main() {
     options.maxReadMiB * 1048576,
     options.command === 'prepare',
   );
-  let progressWidth = 0,
-    lastProgress = -Infinity;
-  const showProgress = (progress: import('../src/stream.ts').ProcessingProgress) => {
-    if (options.nonInteractive || !process.stderr.isTTY || options.command === 'serve') return;
+  let progressWidth = 0;
+  let lastProgress = -Infinity;
+  const showProgress = (
+    progress: import('../src/stream.ts').ProcessingProgress,
+  ) => {
+    if (
+      options.nonInteractive ||
+      !process.stderr.isTTY ||
+      options.command === 'serve'
+    ) {
+      return;
+    }
     const now = performance.now();
-    if (now - lastProgress < 250 && progress.percent !== 100) return;
+    if (now - lastProgress < 250 && progress.percent !== 100) {
+      return;
+    }
     lastProgress = now;
     const line = `${progress.stage}: ${progress.percent}% (${progress.completed.toLocaleString('en-US')}/${progress.total.toLocaleString('en-US')} blocks)`;
     process.stderr.write('\r' + line.padEnd(progressWidth));
@@ -1158,25 +1422,39 @@ async function main() {
     if (
       new TextDecoder().decode(header.buffer.slice(0, 8)) !== 'ISAACPRF' ||
       header.getUint32(8, true) !== 3
-    )
+    ) {
       throw Error(
         'Headless analysis supports streaming v3 captures. Legacy v1/v2 remain supported by the viewer and native analyze.exe.',
       );
+    }
     const stream = new StreamCapture(file);
     stream.onProgress = showProgress;
     await stream.load({ screenshots: false, overview: false });
     if (options.command === 'prepare') {
-      const start = performance.now(),
-        alreadyStored = stream.analysisStored && !!stream.analysis?.overview;
-      let bytes = file.size,
-        appendixBytes = file.size - stream.sourceSize;
+      const start = performance.now();
+      const alreadyStored =
+        stream.analysisStored && !!stream.analysis?.overview;
+      let bytes = file.size;
+      let appendixBytes = file.size - stream.sourceSize;
       if (!alreadyStored) {
         const section = await stream.appendix();
         appendixBytes = section.appendix.length;
-        showProgress({ stage: 'Saving prepared analysis', completed: 0, total: 1, percent: 0 });
+        showProgress({
+          stage: 'Saving prepared analysis',
+          completed: 0,
+          total: 1,
+          percent: 0,
+        });
         bytes = await file.writeAppendix(section.sourceSize, section.appendix);
-        showProgress({ stage: 'Saving prepared analysis', completed: 1, total: 1, percent: 100 });
-      } else await file.unchanged();
+        showProgress({
+          stage: 'Saving prepared analysis',
+          completed: 1,
+          total: 1,
+          percent: 100,
+        });
+      } else {
+        await file.unchanged();
+      }
       const result = {
         path: path.resolve(options.capture),
         updated: !alreadyStored,
@@ -1213,10 +1491,10 @@ async function main() {
       return;
     }
     const envelope = async (current: Options) => {
-      const start = performance.now(),
-        reads = file.reads,
-        bytes = file.readBytes,
-        result = await execute(stream, file, current);
+      const start = performance.now();
+      const reads = file.reads;
+      const bytes = file.readBytes;
+      const result = await execute(stream, file, current);
       await file.unchanged();
       return {
         schema: 'isaacprof-cli/v1',
@@ -1253,7 +1531,10 @@ async function main() {
           : JSON.stringify(
               {
                 ...result,
-                diagnostics: { ...result.diagnostics, total_elapsed_ms: performance.now() - begin },
+                diagnostics: {
+                  ...result.diagnostics,
+                  total_elapsed_ms: performance.now() - begin,
+                },
               },
               null,
               2,
@@ -1269,40 +1550,58 @@ async function main() {
         capture_key: stream.captureKey,
         duration_ms: stream.duration,
         commands: commands.filter(
-          (c) => c !== 'serve' && c !== 'screenshot' && c !== 'list' && c !== 'prepare',
+          (c) =>
+            c !== 'serve' &&
+            c !== 'screenshot' &&
+            c !== 'list' &&
+            c !== 'prepare',
         ),
       }),
     );
-    const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
+    const input = createInterface({
+      input: process.stdin,
+      crlfDelay: Infinity,
+    });
     for await (const line of input) {
       let id: unknown = null;
       try {
-        if (line.length > 65536) throw Error('Request exceeds 64 KiB.');
+        if (line.length > 65536) {
+          throw Error('Request exceeds 64 KiB.');
+        }
         const request: unknown = JSON.parse(line);
-        if (!request || typeof request !== 'object' || Array.isArray(request))
+        if (!request || typeof request !== 'object' || Array.isArray(request)) {
           throw Error('Expected request object.');
+        }
         const value = request as Record<string, unknown>;
         id = value.id ?? null;
         if (
           id !== null &&
           (typeof id !== 'string' || id.length > 128) &&
           (typeof id !== 'number' || !Number.isSafeInteger(id))
-        )
+        ) {
           throw Error(
             'Request id must be null, a string of at most 128 characters, or a safe integer.',
           );
+        }
         if (
           typeof value.command !== 'string' ||
           !Array.isArray(value.args) ||
           !value.args.every((arg: unknown) => typeof arg === 'string')
-        )
+        ) {
           throw Error('Expected command:string and args:string[].');
-        if (['serve', 'screenshot', 'list', 'prepare'].includes(value.command))
+        }
+        if (
+          ['serve', 'screenshot', 'list', 'prepare'].includes(value.command)
+        ) {
           throw Error('Serve permits read-only query commands.');
-        if (value.args.includes('--max-read-mib'))
+        }
+        if (value.args.includes('--max-read-mib')) {
           throw Error('Set the session read budget when starting serve.');
+        }
         const current = parse([value.command, options.capture, ...value.args]);
-        if (current.format !== 'json') throw Error('Serve replies are always JSON.');
+        if (current.format !== 'json') {
+          throw Error('Serve replies are always JSON.');
+        }
         console.log(JSON.stringify({ id, ...(await envelope(current)) }));
       } catch (error) {
         console.log(
@@ -1320,6 +1619,7 @@ async function main() {
     await file.close();
   }
 }
+
 await main().catch((error: unknown) => {
   console.error(
     JSON.stringify({

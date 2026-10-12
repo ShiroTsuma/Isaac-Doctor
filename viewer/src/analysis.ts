@@ -31,16 +31,22 @@ export function matchesQuery(
     (query.metric === undefined || metric.id === query.metric)
   );
 }
+
 function attachGroups(rows: Row[], model: Model, query: Query) {
-  if (query.mode === 'callbacks') return;
+  if (query.mode === 'callbacks') {
+    return;
+  }
   const leaves = Core.rank(model, { ...query, mode: 'callbacks' });
   const compare = (a: Row, b: Row) =>
     (query.descending ? -1 : 1) *
-      (query.sort === 'label' ? a.label.localeCompare(b.label) : a[query.sort] - b[query.sort]) ||
-    a.key.localeCompare(b.key);
+      (query.sort === 'label'
+        ? a.label.localeCompare(b.label)
+        : a[query.sort] - b[query.sort]) || a.key.localeCompare(b.key);
   for (const row of rows) {
     const children = leaves.filter((leaf) =>
-      query.mode === 'mods' ? leaf.mod === row.mod : leaf.metric!.callback_id === row.key,
+      query.mode === 'mods'
+        ? leaf.mod === row.mod
+        : leaf.metric!.callback_id === row.key,
     );
     if (query.mode === 'hooks') {
       row.children = children.sort(compare);
@@ -48,8 +54,8 @@ function attachGroups(rows: Row[], model: Model, query: Query) {
     }
     const hooks = new Map<string, Row>();
     for (const leaf of children) {
-      const m = leaf.metric!,
-        key = `${row.key}/hook/${m.callback_id}`;
+      const m = leaf.metric!;
+      const key = `${row.key}/hook/${m.callback_id}`;
       let hook = hooks.get(key);
       if (!hook) {
         hook = {
@@ -74,7 +80,9 @@ function attachGroups(rows: Row[], model: Model, query: Query) {
       hook.maximum = Math.max(hook.maximum, leaf.maximum);
     }
     row.children = [...hooks.values()].sort(compare);
-    for (const hook of row.children) hook.children!.sort(compare);
+    for (const hook of row.children) {
+      hook.children!.sort(compare);
+    }
   }
 }
 
@@ -87,19 +95,22 @@ export function rankModel(model: Model, query: Query, limit = 500): Results {
     for (const row of items) {
       const path = [...parent, row.key];
       row.key = JSON.stringify([query.mode, ...path]);
-      if (row.children) identify(row.children, path);
+      if (row.children) {
+        identify(row.children, path);
+      }
     }
   };
   identify(rows, []);
   rows.sort(
     (a, b) =>
       (query.descending ? -1 : 1) *
-        (query.sort === 'label' ? a.label.localeCompare(b.label) : a[query.sort] - b[query.sort]) ||
-      a.label.localeCompare(b.label),
+        (query.sort === 'label'
+          ? a.label.localeCompare(b.label)
+          : a[query.sort] - b[query.sort]) || a.label.localeCompare(b.label),
   );
   const omitted = { calls: 0, self: 0, total: 0 };
-  if (query.minimumUs)
-    for (const e of model.events)
+  if (query.minimumUs) {
+    for (const e of model.events) {
       if (
         (!query.range || (e.start >= query.start && e.start < query.end)) &&
         e.duration * 1000 < query.minimumUs &&
@@ -109,6 +120,8 @@ export function rankModel(model: Model, query: Query, limit = 500): Results {
         omitted.self += e.self;
         omitted.total += e.duration;
       }
+    }
+  }
   return {
     omitted,
     rows: rows.slice(0, limit),
@@ -123,7 +136,11 @@ export function rankModel(model: Model, query: Query, limit = 500): Results {
     ),
   };
 }
-export async function rankCapture(stream: StreamCapture, query: Query, limit = 500) {
+export async function rankCapture(
+  stream: StreamCapture,
+  query: Query,
+  limit = 500,
+) {
   const selection =
     query.range || query.minimumUs
       ? await stream.rankSelection(
@@ -170,7 +187,11 @@ export async function eventsCapture(
             `${metrics.get(b.metric)!.mod} / ${metrics.get(b.metric)!.callback_name}`,
           )
         : a[payload.sort] - b[payload.sort];
-    return (payload.descending ? -1 : 1) * v || a.start - b.start || a.metric - b.metric;
+    return (
+      (payload.descending ? -1 : 1) * v ||
+      a.start - b.start ||
+      a.metric - b.metric
+    );
   };
   if (
     !payload.range &&
@@ -182,10 +203,11 @@ export async function eventsCapture(
     !minimumUs &&
     payload.sort === 'start' &&
     !payload.descending
-  )
+  ) {
     return { rows: await stream.earliest(limit), count: stream.count };
-  const rows: TraceEvent[] = [],
-    omitted = { calls: 0, self: 0, total: 0 };
+  }
+  const rows: TraceEvent[] = [];
+  const omitted = { calls: 0, self: 0, total: 0 };
   let count = 0;
   await stream.visitEvents(
     payload.range ? payload.start : 0,
@@ -196,8 +218,9 @@ export async function eventsCapture(
         (payload.range && (start < payload.start || start >= payload.end)) ||
         (payload.errorsOnly && !error) ||
         !matchesQuery(metrics.get(id)!, payload)
-      )
+      ) {
         return;
+      }
       if ((duration / stream.frequency) * 1e6 < minimumUs) {
         omitted.calls++;
         omitted.self += (self / stream.frequency) * 1000;
@@ -225,7 +248,9 @@ export async function summaryCapture(
   const summary = async (kind: 1 | 2) => {
     if (range && stream.analysis) {
       const saved = cachedFrames(stream.analysis, range, kind);
-      if (saved.count || !stream.blocks.some((b) => b.type === 7)) return saved;
+      if (saved.count || !stream.blocks.some((b) => b.type === 7)) {
+        return saved;
+      }
     }
     const result = await frameResults(
       stream.intervals(start, end),
@@ -245,10 +270,13 @@ export async function framesCapture(
   breakdown = true,
   candidateLimit = 500,
 ) {
-  const range = stream.analysis && quarterRange(query.start, query.end, stream.duration),
-    empty = async function* () {};
+  const range =
+    stream.analysis && quarterRange(query.start, query.end, stream.duration);
+  const empty = async function* () {};
   const cached =
-    range && stream.analysis ? cachedFrames(stream.analysis, range, query.kind) : undefined;
+    range && stream.analysis
+      ? cachedFrames(stream.analysis, range, query.kind)
+      : undefined;
   const result = await frameResults(
     stream.intervals(query.start, query.end),
     (start, end) => (breakdown ? stream.events(start, end) : empty()),
@@ -256,42 +284,64 @@ export async function framesCapture(
     query,
     !stream.document.complete || !!stream.document.timeline.dropped_events,
     cached?.count ? cached : undefined,
-    breakdown ? (_start, _end, visit, ranges) => stream.visitRanges(ranges, visit) : undefined,
+    breakdown
+      ? (_start, _end, visit, ranges) => stream.visitRanges(ranges, visit)
+      : undefined,
     candidateLimit,
   );
   if (!result.count) {
     const session = await summaryCapture(stream);
-    result.sessionCount = (query.kind === 2 ? session.render : session.update).count;
+    result.sessionCount = (
+      query.kind === 2 ? session.render : session.update
+    ).count;
     result.enclosingRange = null;
-    if (result.sessionCount)
-      for await (const f of stream.intervals(query.start, query.end))
-        if (f.kind === query.kind && f.start < query.end && f.start + f.duration > query.start) {
+    if (result.sessionCount) {
+      for await (const f of stream.intervals(query.start, query.end)) {
+        if (
+          f.kind === query.kind &&
+          f.start < query.end &&
+          f.start + f.duration > query.start
+        ) {
           const previous: [number, number] | null = result.enclosingRange;
           result.enclosingRange = [
             Math.min(previous?.[0] ?? f.start, f.start),
-            Math.max(previous?.[1] ?? f.start + f.duration, f.start + f.duration),
+            Math.max(
+              previous?.[1] ?? f.start + f.duration,
+              f.start + f.duration,
+            ),
           ];
         }
+      }
+    }
   }
   if (query.kind === 2 && result.rows.length) {
     const byThread = new Map<number, number[]>();
-    for await (const f of stream.intervals(query.start, query.end))
+    for await (const f of stream.intervals(query.start, query.end)) {
       if (f.kind === 1) {
-        if (!byThread.has(f.thread)) byThread.set(f.thread, []);
+        if (!byThread.has(f.thread)) {
+          byThread.set(f.thread, []);
+        }
         const times = byThread.get(f.thread)!;
         times.push(f.start + f.duration);
-        if (times.length > 200000)
+        if (times.length > 200000) {
           throw Error('Too many update observations; select a smaller range.');
+        }
       }
-    for (const times of byThread.values()) times.sort((a, b) => a - b);
+    }
+    for (const times of byThread.values()) {
+      times.sort((a, b) => a - b);
+    }
     for (const f of result.rows) {
       const times = byThread.get(f.thread) ?? [];
-      let low = 0,
-        high = times.length;
+      let low = 0;
+      let high = times.length;
       while (low < high) {
         const mid = (low + high) >>> 1;
-        if (times[mid] < f.start) low = mid + 1;
-        else high = mid;
+        if (times[mid] < f.start) {
+          low = mid + 1;
+        } else {
+          high = mid;
+        }
       }
       f.hasUpdate = low < times.length && times[low] < f.start + f.duration;
     }
@@ -299,14 +349,21 @@ export async function framesCapture(
   return result;
 }
 
-export async function treeCapture(source: StreamCapture | Model, payload: Query, limit = 1000) {
-  const stream = source instanceof StreamCapture ? source : null,
-    model = source as Model;
+export async function treeCapture(
+  source: StreamCapture | Model,
+  payload: Query,
+  limit = 1000,
+) {
+  const stream = source instanceof StreamCapture ? source : null;
+  const model = source as Model;
 
-  const roots = new Map<number, Branch>(),
-    stacks = new Map<number, TraceEvent[]>();
+  const roots = new Map<number, Branch>();
+  const stacks = new Map<number, TraceEvent[]>();
+
   function consume(events: TraceEvent[], start: number, end: number) {
-    const bySpan = new Map(events.filter((e) => e.span !== undefined).map((e) => [e.span!, e]));
+    const bySpan = new Map(
+      events.filter((e) => e.span !== undefined).map((e) => [e.span!, e]),
+    );
     for (const e of events) {
       let stack = stacks.get(e.thread);
       if (!stack) {
@@ -317,8 +374,9 @@ export async function treeCapture(source: StreamCapture | Model, payload: Query,
         stack.length &&
         (stack.at(-1)!.depth >= e.depth ||
           stack.at(-1)!.start + stack.at(-1)!.duration < e.start + e.duration)
-      )
+      ) {
         stack.pop();
+      }
       let ancestry = [...stack, e];
       stack.push(e);
       if (e.span !== undefined) {
@@ -331,14 +389,23 @@ export async function treeCapture(source: StreamCapture | Model, payload: Query,
           parent = bySpan.get(parent.parent!);
         }
       }
-      if (e.start < start || e.start >= end || e.duration * 1000 < (payload.minimumUs ?? 0))
+      if (
+        e.start < start ||
+        e.start >= end ||
+        e.duration * 1000 < (payload.minimumUs ?? 0)
+      ) {
         continue;
+      }
       const m = (stream?.metrics ?? model.metrics).get(e.metric)!;
-      if (!matchesQuery(m, payload)) continue;
+      if (!matchesQuery(m, payload)) {
+        continue;
+      }
       let branch = roots;
       for (const ancestor of ancestry) {
         if (!branch.has(ancestor.metric)) {
-          const metric = (stream?.metrics ?? model.metrics).get(ancestor.metric)!;
+          const metric = (stream?.metrics ?? model.metrics).get(
+            ancestor.metric,
+          )!;
           branch.set(ancestor.metric, {
             key: '',
             metric,
@@ -364,14 +431,18 @@ export async function treeCapture(source: StreamCapture | Model, payload: Query,
       }
     }
   }
+
   if (stream) {
-    const start = payload.range ? payload.start : 0,
-      end = payload.range ? payload.end : stream.duration;
-    let at = start,
-      step = Math.max(0.0001, (end - start) * Math.min(1, 10000 / Math.max(1, stream.count)));
+    const start = payload.range ? payload.start : 0;
+    const end = payload.range ? payload.end : stream.duration;
+    let at = start;
+    let step = Math.max(
+      0.0001,
+      (end - start) * Math.min(1, 10000 / Math.max(1, stream.count)),
+    );
     while (at < end) {
-      const until = Math.min(end, at + step),
-        events: TraceEvent[] = [];
+      const until = Math.min(end, at + step);
+      const events: TraceEvent[] = [];
       let overflow = false;
       for await (const e of stream.events(at, until)) {
         events.push(e);
@@ -381,7 +452,9 @@ export async function treeCapture(source: StreamCapture | Model, payload: Query,
         }
       }
       if (overflow) {
-        if (step <= 0.0001) throw Error('Call tree range is too dense. Zoom in.');
+        if (step <= 0.0001) {
+          throw Error('Call tree range is too dense. Zoom in.');
+        }
         step /= 2;
         continue;
       }
@@ -390,29 +463,44 @@ export async function treeCapture(source: StreamCapture | Model, payload: Query,
       consume(events, at, until);
       at = until;
     }
-  } else
+  } else {
     consume(
       model.events,
       payload.range ? payload.start : 0,
       payload.range ? payload.end : Number.POSITIVE_INFINITY,
     );
+  }
   let count = 0;
-  const treeSort = payload.sort,
-    treeDescending = payload.descending;
-  function flatten(branch: Map<number, Branch>, prefix = '', depth = 0): TreeRow[] {
+  const treeSort = payload.sort;
+  const treeDescending = payload.descending;
+
+  function flatten(
+    branch: Map<number, Branch>,
+    prefix = '',
+    depth = 0,
+  ): TreeRow[] {
     const rows: TreeRow[] = [];
     for (const node of [...branch.values()].sort(
       (a, b) =>
         (treeDescending ? -1 : 1) *
-          (treeSort === 'label' ? a.label.localeCompare(b.label) : a[treeSort] - b[treeSort]) ||
-        a.metric.id - b.metric.id,
+          (treeSort === 'label'
+            ? a.label.localeCompare(b.label)
+            : a[treeSort] - b[treeSort]) || a.metric.id - b.metric.id,
     )) {
-      if (count >= limit) break;
+      if (count >= limit) {
+        break;
+      }
       count++;
       const key = prefix + '/' + node.metric.id;
-      rows.push({ ...node, key, depth, children: flatten(node.children, key, depth + 1) });
+      rows.push({
+        ...node,
+        key,
+        depth,
+        children: flatten(node.children, key, depth + 1),
+      });
     }
     return rows;
   }
+
   return { rows: flatten(roots), count };
 }

@@ -21,46 +21,59 @@ export function slowFrameComparisons(
   top = 10,
   index = new FrameReferenceIndex([...frames, ...observations], telemetry),
 ) {
-  const costs = new Map<FrameInterval, AttributedInterval>(frames.map((f) => [f, f]));
+  const costs = new Map<FrameInterval, AttributedInterval>(
+    frames.map((f) => [f, f]),
+  );
   const slow = frames
-      .filter((f) => p95 !== null && f.duration >= p95)
-      .sort((a, b) => b.duration - a.duration || a.start - b.start),
-    selected = slow.slice(0, 500);
+    .filter((f) => p95 !== null && f.duration >= p95)
+    .sort((a, b) => b.duration - a.duration || a.start - b.start);
+  const selected = slow.slice(0, 500);
   const recurrent = new Map<
     number,
-    { count: number; total: number; max: number; calls: number; baselineCalls: number }
+    {
+      count: number;
+      total: number;
+      max: number;
+      calls: number;
+      baselineCalls: number;
+    }
   >();
-  let matched = 0,
-    contextMatched = 0,
-    extraWall = 0,
-    extraSelf = 0,
-    crossing = 0;
+  let matched = 0;
+  let contextMatched = 0;
+  let extraWall = 0;
+  let extraSelf = 0;
+  let crossing = 0;
   const details = selected.map((frame) => {
-    const reference = index.match(frame),
-      base = reference.frames.map((f) => costs.get(f)!),
-      n = base.length;
-    if (!n) return { frame, reference, comparison: null };
+    const reference = index.match(frame);
+    const base = reference.frames.map((f) => costs.get(f)!);
+    const n = base.length;
+    if (!n) {
+      return { frame, reference, comparison: null };
+    }
     matched++;
-    if (reference.quality === 'context-matched') contextMatched++;
-    const baselineSelf = base.reduce((s, f) => s + f.self, 0) / n,
-      wallDelta = frame.duration - reference.meanWall!,
-      selfDelta = frame.self - baselineSelf;
+    if (reference.quality === 'context-matched') {
+      contextMatched++;
+    }
+    const baselineSelf = base.reduce((s, f) => s + f.self, 0) / n;
+    const wallDelta = frame.duration - reference.meanWall!;
+    const selfDelta = frame.self - baselineSelf;
     extraWall += wallDelta;
     extraSelf += selfDelta;
     crossing += frame.boundaryCrossingCalls;
     const referenceCosts = new Map<number, IntervalCost>();
-    for (const f of base)
+    for (const f of base) {
       for (const [id, c] of f.metrics) {
         const old = referenceCosts.get(id) ?? { self: 0, calls: 0 };
         old.self += c.self / n;
         old.calls += c.calls / n;
         referenceCosts.set(id, old);
       }
+    }
     const increases = [...frame.metrics]
       .map(([id, c]) => {
-        const b = referenceCosts.get(id) ?? { self: 0, calls: 0 },
-          m = metrics.get(id)!,
-          delta = c.self - b.self;
+        const b = referenceCosts.get(id) ?? { self: 0, calls: 0 };
+        const m = metrics.get(id)!;
+        const delta = c.self - b.self;
         // 50 µs is an analysis reporting threshold, not a capture/view filter.
         if (delta >= 0.05) {
           const old = recurrent.get(id) ?? {
@@ -127,7 +140,25 @@ export function slowFrameComparisons(
         reference_mean_calls_when_present: r.baselineCalls / r.count,
       };
     });
+  const increasesByInterval = details
+    .filter((d) => d.comparison && d.comparison.extra_wall_ms > 0)
+    .sort((a, b) => b.comparison!.extra_wall_ms - a.comparison!.extra_wall_ms);
+  const largest = increasesByInterval[0];
+  const positiveWall = increasesByInterval.reduce(
+    (sum, d) => sum + d.comparison!.extra_wall_ms,
+    0,
+  );
   return {
+    largest_increase: largest
+      ? {
+          id: largest.frame.id,
+          thread: largest.frame.thread,
+          start_ms: largest.frame.start,
+          extra_wall_ms: largest.comparison!.extra_wall_ms,
+          share_of_positive_extra_wall:
+            largest.comparison!.extra_wall_ms / positiveWall,
+        }
+      : null,
     slow_intervals: slow.length,
     analyzed_intervals: selected.length,
     matched_intervals: matched,
@@ -139,31 +170,35 @@ export function slowFrameComparisons(
     recurrence_minimum_extra_self_us: 50,
     mean_extra_wall_ms: matched ? extraWall / matched : null,
     mean_extra_callback_self_ms: matched ? extraSelf / matched : null,
-    mean_extra_unattributed_wall_ms: matched ? (extraWall - extraSelf) / matched : null,
+    mean_extra_unattributed_wall_ms: matched
+      ? (extraWall - extraSelf) / matched
+      : null,
     boundary_crossing_calls: crossing,
     recurring_callback_increases: recurring,
-    slowest_intervals: details.slice(0, top).map(({ frame, reference, comparison }) => ({
-      id: frame.id,
-      start_ms: frame.start,
-      duration_ms: frame.duration,
-      thread: frame.thread,
-      callback_self_ms: frame.self,
-      calls: frame.calls,
-      has_update: reference.hasUpdate,
-      reference: {
-        quality: reference.quality,
-        reason: reference.reason,
-        population: reference.population,
-        mean_wall_ms: reference.meanWall,
-        intervals: reference.frames.map((f) => ({
-          id: f.id,
-          start_ms: f.start,
-          duration_ms: f.duration,
-        })),
-        context: reference.context ?? null,
-      },
-      comparison,
-    })),
+    slowest_intervals: details
+      .slice(0, top)
+      .map(({ frame, reference, comparison }) => ({
+        id: frame.id,
+        start_ms: frame.start,
+        duration_ms: frame.duration,
+        thread: frame.thread,
+        callback_self_ms: frame.self,
+        calls: frame.calls,
+        has_update: reference.hasUpdate,
+        reference: {
+          quality: reference.quality,
+          reason: reference.reason,
+          population: reference.population,
+          mean_wall_ms: reference.meanWall,
+          intervals: reference.frames.map((f) => ({
+            id: f.id,
+            start_ms: f.start,
+            duration_ms: f.duration,
+          })),
+          context: reference.context ?? null,
+        },
+        comparison,
+      })),
     limitations: [
       'Worst 500 p95+ intervals only; an increase must occur in at least 3 matched intervals and exceed 50 µs to enter the recurring ranking.',
       'References are up to 5 intervals near the median of the neighborhood excluding the upper duration decile, within 5 seconds, same clock/thread/update activity and transition segment.',

@@ -41,6 +41,11 @@ int main(int argc, char** argv) {
             std::cerr << lua_tostring(L, -1) << '\n'; lua_close(L); return 2;
         }
         if (dc) {
+            // Owned-host engine delay for presentation diagnostics. This runs
+            // after Lua returns and must not be charged to a mod callback.
+            lua_getglobal(L,"TestBeforeSwapDelayMs");
+            const auto delay=lua_tointeger(L,-1);lua_pop(L,1);
+            if(delay>0 && delay<=100)Sleep(static_cast<DWORD>(delay));
             glViewport(0,0,640,360);glDisable(GL_SCISSOR_TEST);glClearColor(0,0,1,1);glClear(GL_COLOR_BUFFER_BIT);
             glEnable(GL_SCISSOR_TEST);glScissor(0,0,640,180);glClearColor(1,0,0,1);glClear(GL_COLOR_BUFFER_BIT);glDisable(GL_SCISSOR_TEST);
             SwapBuffers(dc);

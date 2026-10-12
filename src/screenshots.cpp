@@ -52,6 +52,12 @@ std::atomic<bool> enabled{false}, active{false};
 std::atomic<long long> startTicks{0}, frequency{1};
 decltype(&SwapBuffers) originalSwap = nullptr;
 thread_local bool swapping = false;
+std::atomic<bool> presentationEnabled{false};
+std::atomic<unsigned> presentationGeneration{0};
+std::mutex presentationMutex;
+std::array<StreamPresentation, 2048> presentationSamples;
+size_t presentationCount = 0;
+std::uint64_t presentationDropped = 0;
 long long ticks(){LARGE_INTEGER n{};QueryPerformanceCounter(&n);return n.QuadPart;}
 template<class T> bool bind(T& fn, const char* name){const auto proc=wglGetProcAddress(name);if(!proc || reinterpret_cast<std::intptr_t>(proc)<=3 || reinterpret_cast<std::intptr_t>(proc)==-1)return false;fn=reinterpret_cast<T>(proc);return true;}
 bool initialize(){
@@ -124,7 +130,42 @@ void sample(){
     if(scissor)glEnable(GL_SCISSOR_TEST);
     saved.overheadNs+=static_cast<std::uint64_t>(static_cast<double>(ticks()-before)*1e9/static_cast<double>(frequency.load()));
 }
-BOOL WINAPI swap(HDC dc){if(swapping)return originalSwap(dc);swapping=true;try{sample();}catch(...){enabled.store(false);}const auto result=originalSwap(dc);swapping=false;return result;}
+BOOL WINAPI swap(HDC dc){
+    if(swapping)return originalSwap(dc);
+    swapping=true;
+    struct SwapGuard { ~SwapGuard(){swapping=false;} } guard;
+    struct Clock { unsigned generation=0; HDC dc=nullptr; HGLRC context=nullptr; long long end=0; ULONG64 cycles=0; bool cyclesValid=false; std::uint64_t id=0; };
+    thread_local Clock clock;
+    const auto capture=presentationGeneration.load();
+    const auto glContext=wglGetCurrentContext();
+    const bool measuring=active.load() && presentationEnabled.load() && glContext && wglGetCurrentDC()==dc;
+    const auto readbackStart=measuring?ticks():0;
+    try{sample();}catch(...){enabled.store(false);}
+    const auto readbackEnd=measuring?ticks():0;
+    ULONG64 beforeCycles=0,afterCycles=0;
+    const bool beforeValid=measuring && QueryThreadCycleTime(GetCurrentThread(),&beforeCycles)!=0;
+    const auto swapStart=measuring?ticks():0;
+    const auto result=originalSwap(dc);
+    const auto swapEnd=measuring?ticks():0;
+    const bool afterValid=measuring && QueryThreadCycleTime(GetCurrentThread(),&afterCycles)!=0;
+    if(!measuring){clock.end=0;return result;}
+    if(clock.generation!=capture){clock={};clock.generation=capture;}
+    if(clock.end>=startTicks.load() && clock.end>0 && clock.dc==dc && clock.context==glContext && swapEnd>clock.end){
+        const auto origin=startTicks.load();
+        StreamPresentation record{static_cast<std::uint64_t>(clock.end-origin),static_cast<std::uint64_t>(swapEnd-clock.end),++clock.id,
+            static_cast<std::uint64_t>(swapStart-origin),static_cast<std::uint64_t>(swapEnd-swapStart),
+            static_cast<std::uint64_t>(readbackStart-origin),static_cast<std::uint64_t>(readbackEnd-readbackStart),0,0,GetCurrentThreadId(),result?4u:0u};
+        if(afterValid && clock.cyclesValid && afterCycles>=clock.cycles){record.cycles=afterCycles-clock.cycles;record.flags|=1;}
+        if(beforeValid && afterValid && afterCycles>=beforeCycles){record.swapCycles=afterCycles-beforeCycles;record.flags|=2;}
+        std::lock_guard lock(presentationMutex);
+        if(active.load() && presentationEnabled.load() && presentationGeneration.load()==capture){
+            if(presentationCount<presentationSamples.size())presentationSamples[presentationCount++]=record;
+            else ++presentationDropped;
+        }
+    }
+    clock.dc=dc;clock.context=glContext;clock.end=swapEnd;clock.cycles=afterCycles;clock.cyclesValid=afterValid;
+    return result;
+}
 std::vector<unsigned char> encode(const Raw& raw){
     auto check=[](HRESULT h){if(FAILED(h))throw std::runtime_error("PNG encoder failed");};
     ComPtr<IWICImagingFactory> factory;check(CoCreateInstance(CLSID_WICImagingFactory,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&factory)));
@@ -144,6 +185,12 @@ void installScreenshotHook(){
     if(!target || MH_CreateHook(reinterpret_cast<void*>(target),swap,reinterpret_cast<void**>(&originalSwap))!=MH_OK)throw std::runtime_error("Cannot hook frame presentation");
 }
 void configureScreenshots(bool use, unsigned interval){enabled.store(false);std::lock_guard lock(mutex);++generation;queue.clear();saved={};saved.intervalMs=use?interval:0;submitted=0;nextTime=0;enabled.store(use);}
+void configurePresentation(bool use){presentationEnabled.store(false);std::lock_guard lock(presentationMutex);++presentationGeneration;presentationCount=0;presentationDropped=0;presentationEnabled.store(use);}
+std::vector<StreamPresentation> drainPresentationSamples(std::uint64_t& omitted){
+    std::lock_guard lock(presentationMutex);
+    std::vector<StreamPresentation> result(presentationSamples.begin(),presentationSamples.begin()+presentationCount);
+    presentationCount=0;omitted=presentationDropped;presentationDropped=0;return result;
+}
 void setScreenshotClock(bool recording,long long start,long long freq){startTicks.store(start);frequency.store(freq);active.store(recording);}
 void processScreenshots(){
     for(;;){Raw raw;{std::lock_guard lock(mutex);if(queue.empty())return;raw=std::move(queue.front());queue.pop_front();}

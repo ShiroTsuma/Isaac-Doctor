@@ -57,8 +57,8 @@ def control(command, options=None):
                 raise ValueError(f'{key} must be a boolean')
             if value and (key != 'afterLoad' or 'startOn' not in values):
                 arguments.append(flag)
-        mask = values.get('channels', 2047)
-        if type(mask) is not int or mask < 0 or mask & ~2047:
+        mask = values.get('channels', 4095)
+        if type(mask) is not int or mask < 0 or mask & ~4095:
             raise ValueError('Invalid capture channel mask')
         arguments += ['--channels', str(mask)]
         for key, flag in [('selectedMods', '--mod'), ('selectedHooks', '--hook')]:

@@ -1,6 +1,9 @@
 import SortableHeader from './SortableHeader.tsx';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Comparison as ComparisonData, ComparisonRow } from './comparison.ts';
+import type {
+  Comparison as ComparisonData,
+  ComparisonRow,
+} from './comparison.ts';
 import type { LoadedTrace, WorkerClient } from './types.ts';
 import { ms } from './trace.ts';
 import './frames.css';
@@ -15,37 +18,50 @@ export default function Comparison({
   request: WorkerClient['request'];
 }) {
   type Sort =
-    'activity' | 'selfA' | 'selfB' | 'meanA' | 'meanB' | 'callsA' | 'callsB' | 'delta' | 'code';
-  const [sort, setSort] = useState<Sort>('selfA'),
-    [descending, setDescending] = useState(true);
-  const input = useRef<HTMLInputElement>(null),
-    [file, setFile] = useState<File | null>(null),
-    [search, setSearch] = useState(''),
-    [group, setGroup] = useState<'mods' | 'hooks' | 'functions'>('hooks');
+    | 'activity'
+    | 'selfA'
+    | 'selfB'
+    | 'meanA'
+    | 'meanB'
+    | 'callsA'
+    | 'callsB'
+    | 'delta'
+    | 'code';
+  const [sort, setSort] = useState<Sort>('selfA');
+  const [descending, setDescending] = useState(true);
+  const input = useRef<HTMLInputElement>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [search, setSearch] = useState('');
+  const [group, setGroup] = useState<'mods' | 'hooks' | 'functions'>('hooks');
   const [state, setState] = useState<{
-      owner: LoadedTrace;
-      file: File;
-      key: string;
-      result?: ComparisonData;
-      error?: string;
-    } | null>(null),
-    key = JSON.stringify(range);
+    owner: LoadedTrace;
+    file: File;
+    key: string;
+    result?: ComparisonData;
+    error?: string;
+  } | null>(null);
+  const key = JSON.stringify(range);
   useEffect(() => {
-    if (!file) return;
+    if (!file) {
+      return;
+    }
     let active = true;
     const timer = setTimeout(() => {
       void request('compare', { file, start: range[0], end: range[1] })
         .then((result) => {
-          if (active) setState({ owner: data, file, key, result });
+          if (active) {
+            setState({ owner: data, file, key, result });
+          }
         })
         .catch((e: unknown) => {
-          if (active)
+          if (active) {
             setState({
               owner: data,
               file,
               key,
               error: e instanceof Error ? e.message : 'Comparison failed',
             });
+          }
         });
     }, 150);
     return () => {
@@ -53,17 +69,25 @@ export default function Comparison({
       clearTimeout(timer);
     };
   }, [data, file, key, range, request]);
-  const resolved = state?.owner === data && state.file === file && state.key === key,
-    result = resolved ? state.result : undefined;
+  const resolved =
+    state?.owner === data && state.file === file && state.key === key;
+  const result = resolved ? state.result : undefined;
   const rows = useMemo(() => {
     const source =
       result?.rows.filter((r) =>
-        `${r.mod} ${r.hook} ${r.source}`.toLowerCase().includes(search.toLowerCase()),
+        `${r.mod} ${r.hook} ${r.source}`
+          .toLowerCase()
+          .includes(search.toLowerCase()),
       ) ?? [];
-    if (group === 'functions') return source;
+    if (group === 'functions') {
+      return source;
+    }
     const totals = new Map<string, ComparisonRow>();
     for (const row of source) {
-      const key = JSON.stringify([row.mod, ...(group === 'hooks' ? [row.hook] : [])]);
+      const key = JSON.stringify([
+        row.mod,
+        ...(group === 'hooks' ? [row.hook] : []),
+      ]);
       let t = totals.get(key);
       if (!t) {
         t = {
@@ -83,8 +107,11 @@ export default function Comparison({
       t.selfB += row.selfB;
       t.callsA += row.callsA;
       t.callsB += row.callsB;
-      if (row.code === 'changed') t.code = 'changed';
-      else if (row.code === 'unavailable' && t.code !== 'changed') t.code = 'unavailable';
+      if (row.code === 'changed') {
+        t.code = 'changed';
+      } else if (row.code === 'unavailable' && t.code !== 'changed') {
+        t.code = 'unavailable';
+      }
     }
     for (const t of totals.values()) {
       t.meanA = t.callsA ? (t.selfA * 1000) / t.callsA : null;
@@ -93,7 +120,9 @@ export default function Comparison({
     return [...totals.values()];
   }, [result, search, group]);
   const sorted = useMemo(() => {
-    if (!result) return [];
+    if (!result) {
+      return [];
+    }
     const value = (row: ComparisonRow): number | string | null => {
       switch (sort) {
         case 'activity':
@@ -102,29 +131,38 @@ export default function Comparison({
           return row.code;
         case 'selfA':
         case 'callsA':
-          return result.durationA ? (row[sort] * 1000) / result.durationA : null;
+          return result.durationA
+            ? (row[sort] * 1000) / result.durationA
+            : null;
         case 'selfB':
         case 'callsB':
-          return result.durationB ? (row[sort] * 1000) / result.durationB : null;
+          return result.durationB
+            ? (row[sort] * 1000) / result.durationB
+            : null;
         case 'delta':
-          return row.meanA === null || row.meanB === null ? null : row.meanA - row.meanB;
+          return row.meanA === null || row.meanB === null
+            ? null
+            : row.meanA - row.meanB;
         default:
           return row[sort];
       }
     };
     return rows.slice().sort((a, b) => {
-      const x = value(a),
-        y = value(b);
-      if (x === null || y === null)
+      const x = value(a);
+      const y = value(b);
+      if (x === null || y === null) {
         return x === y ? a.key.localeCompare(b.key) : x === null ? 1 : -1;
+      }
       return (
         (descending ? -1 : 1) *
-          (typeof x === 'string' ? x.localeCompare(String(y)) : Number(x) - Number(y)) ||
-        a.key.localeCompare(b.key)
+          (typeof x === 'string'
+            ? x.localeCompare(String(y))
+            : Number(x) - Number(y)) || a.key.localeCompare(b.key)
       );
     });
   }, [rows, result, sort, descending]);
-  const rate = (self: number, duration: number) => (duration ? ms((self * 1000) / duration) : '—');
+  const rate = (self: number, duration: number) =>
+    duration ? ms((self * 1000) / duration) : '—';
   return (
     <div className="frames-panel">
       <div className="analysis-toolbar">
@@ -142,7 +180,10 @@ export default function Comparison({
         <span>{file?.name || 'Local file; no upload'}</span>
         <label>
           Group{' '}
-          <select value={group} onChange={(e) => setGroup(e.target.value as typeof group)}>
+          <select
+            value={group}
+            onChange={(e) => setGroup(e.target.value as typeof group)}
+          >
             <option value="mods">Mods</option>
             <option value="hooks">Hooks</option>
             <option value="functions">Functions</option>
@@ -188,14 +229,16 @@ export default function Comparison({
               </b>
             </span>
             <span>
-              {result.incomplete ? 'Incomplete / filtered attribution' : 'Complete recordings'}
+              {result.incomplete
+                ? 'Incomplete / filtered attribution'
+                : 'Complete recordings'}
             </span>
           </div>
           <div className="frame-note">
-            Current selected range ({ms(result.durationA)}) vs entire reference (
-            {ms(result.durationB)}). Self/s normalizes session length; mean self/call separates call
-            frequency from individual cost. Different rooms/runs are not a controlled FPS
-            experiment.
+            Current selected range ({ms(result.durationA)}) vs entire reference
+            ({ms(result.durationB)}). Self/s normalizes session length; mean
+            self/call separates call frequency from individual cost. Different
+            rooms/runs are not a controlled FPS experiment.
           </div>
           <div className="analysis-table-scroll">
             <table className="comparison-table">
@@ -216,8 +259,9 @@ export default function Comparison({
                 sort={sort}
                 descending={descending}
                 onSort={(key) => {
-                  if (sort === key) setDescending(!descending);
-                  else {
+                  if (sort === key) {
+                    setDescending(!descending);
+                  } else {
                     setSort(key);
                     setDescending(key !== 'activity' && key !== 'code');
                   }
@@ -234,7 +278,9 @@ export default function Comparison({
                       {group === 'functions' && (
                         <span className="source-inline">
                           {row.source}:{row.lineA ?? '—'} → {row.lineB ?? '—'} ·{' '}
-                          {row.identity === 'ordinal' ? 'tentative ordinal match' : row.identity}
+                          {row.identity === 'ordinal'
+                            ? 'tentative ordinal match'
+                            : row.identity}
                         </span>
                       )}
                     </td>
@@ -264,14 +310,17 @@ export default function Comparison({
             </table>
           </div>
           <div className="frame-note">
-            {rows.length.toLocaleString()} matches · first 1,000 displayed. Function matching uses
-            source/hook and definition line, or a tentative ordinal when lines moved and group sizes
-            match. A source hash describes disk contents at capture, not proof of loaded bytecode.
+            {rows.length.toLocaleString()} matches · first 1,000 displayed.
+            Function matching uses source/hook and definition line, or a
+            tentative ordinal when lines moved and group sizes match. A source
+            hash describes disk contents at capture, not proof of loaded
+            bytecode.
           </div>
         </>
       ) : (
         <div className="no-analysis">
-          Choose a second recording to compare callback cost and source versions.
+          Choose a second recording to compare callback cost and source
+          versions.
         </div>
       )}
     </div>

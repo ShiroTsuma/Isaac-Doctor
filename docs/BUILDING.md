@@ -53,6 +53,8 @@ This starts Vite with its managed local Python controller. Ending that Vite proc
 
 `pnpm --dir viewer build` checks Prettier formatting for all TypeScript, TSX and MTS files, then runs strict TypeScript checks and ESLint with zero warnings before building. Run `pnpm --dir viewer format` to format the sources, or `pnpm --dir viewer format:check` to check without writing. Prettier has an exact pinned version so editor and CI formatting agree. Native targets use compiler warnings as errors.
 
+Source formatting uses an 80-column target and two-space indentation. ESLint also requires braces around control flow, one variable per declaration, and blank lines between function declarations and class methods. These rules keep the code readable beyond the line wrapping that Prettier handles. Use `pnpm --dir viewer exec eslint . --fix` followed by `pnpm --dir viewer format` to apply both sets of rules.
+
 Controlled capture tests use owned Lua host processes rather than launching Isaac:
 
 ```powershell

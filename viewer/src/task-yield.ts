@@ -5,8 +5,13 @@ export class Superseded extends Error {
 }
 export async function yieldTask() {
   const scheduler = (
-    globalThis as typeof globalThis & { scheduler?: { yield: () => Promise<void> } }
+    globalThis as typeof globalThis & {
+      scheduler?: { yield: () => Promise<void> };
+    }
   ).scheduler;
-  if (scheduler) await scheduler.yield();
-  else await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  if (scheduler) {
+    await scheduler.yield();
+  } else {
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  }
 }

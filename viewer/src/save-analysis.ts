@@ -1,6 +1,8 @@
 export type AnalysisHandle = FileSystemFileHandle & {
   queryPermission: (options: { mode: 'readwrite' }) => Promise<PermissionState>;
-  requestPermission: (options: { mode: 'readwrite' }) => Promise<PermissionState>;
+  requestPermission: (options: {
+    mode: 'readwrite';
+  }) => Promise<PermissionState>;
 };
 export async function saveAnalysis(
   handle: FileSystemFileHandle,
@@ -11,9 +13,17 @@ export async function saveAnalysis(
 ): Promise<File> {
   signal?.throwIfAborted();
   const fresh = await handle.getFile();
-  if (fresh.size !== original.size || fresh.lastModified !== original.lastModified)
-    throw Error('Recording changed during analysis. Reopen it before saving derived data.');
-  if (sourceSize < 72 || sourceSize > fresh.size) throw Error('Invalid analysis write position.');
+  if (
+    fresh.size !== original.size ||
+    fresh.lastModified !== original.lastModified
+  ) {
+    throw Error(
+      'Recording changed during analysis. Reopen it before saving derived data.',
+    );
+  }
+  if (sourceSize < 72 || sourceSize > fresh.size) {
+    throw Error('Invalid analysis write position.');
+  }
   signal?.throwIfAborted();
   const writer = await handle.createWritable({ keepExistingData: true });
   const abort = () => {

@@ -90,11 +90,19 @@ int wmain(int argc, wchar_t** argv) {
                 if (p.size > ip::packetBytes) throw std::runtime_error("Invalid producer packet size.");
                 const bool counter = p.type == ip::countersChunk || p.type == ip::contextChunk || p.type == ip::overheadChunk || p.type == ip::errorChunk;
                 if ((p.type == ip::countersChunk && p.size != sizeof(ip::StreamCounters)) ||
+                    (p.type == ip::presentationChunk && (!p.size || p.size % sizeof(ip::StreamPresentation) || p.size / sizeof(ip::StreamPresentation)>2048)) ||
                     (p.type == ip::contextChunk && p.size != sizeof(ip::StreamContext)) ||
                     (p.type == ip::overheadChunk && p.size != sizeof(ip::StreamOverhead)) ||
                     (p.type == ip::errorChunk && (p.size < 32 || p.size > 20600))) throw std::runtime_error("Invalid diagnostic packet.");
                 std::uint64_t timestamp = 0; if (counter) memcpy(&timestamp, p.bytes.data(), sizeof(timestamp));
-                index.push_back(ip::writeChunk(out, sequence++, static_cast<std::uint16_t>(p.type), p.bytes.data(), p.size, counter ? 1u : 0u, timestamp, timestamp));
+                std::uint64_t maximum=timestamp;std::uint32_t count=counter?1u:0u;
+                if(p.type==ip::presentationChunk){
+                    count=p.size/sizeof(ip::StreamPresentation);timestamp=~0ULL;maximum=0;
+                    for(std::uint32_t i=0;i<count;++i){ip::StreamPresentation sample{};memcpy(&sample,p.bytes.data()+i*sizeof(sample),sizeof(sample));
+                        if(!sample.id || !sample.duration || sample.start+sample.duration<sample.start)throw std::runtime_error("Invalid presentation interval.");
+                        timestamp=std::min(timestamp,sample.start);maximum=std::max(maximum,sample.start+sample.duration);}
+                }
+                index.push_back(ip::writeChunk(out, sequence++, static_cast<std::uint16_t>(p.type), p.bytes.data(), p.size, count, timestamp, maximum));
                 InterlockedExchange(&shared->packetRead, static_cast<LONG>(++pr));
             }
             const bool dead = WaitForSingleObject(process, 0) == WAIT_OBJECT_0;

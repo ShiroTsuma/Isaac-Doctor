@@ -72,6 +72,8 @@ Closing the browser tab alone leaves the controller running. The game stays open
 
 Open **Frames**, choose Render or Update, and sort by wall time. Inspect the retained callback breakdown or select the costliest callback. For a selection shorter than one complete interval, use **Show enclosing frame**.
 
+If a slow interval has little extra Lua work, choose **Frames → Presentation**. The independent **Presentation / SwapBuffers** capture channel measures time between swap returns, time inside `SwapBuffers`, and screenshot-hook cost. Add a presentation timing graph to compare spikes across the same range. These measurements help separate callback costs from delays elsewhere; they do not identify a GPU bottleneck or measure time on the display.
+
 ![Slow render intervals with wall time, callback self time and costliest callbacks](docs/images/slow-frames.png)
 
 ### Put a spike in context
@@ -85,6 +87,8 @@ Add entity and effect graphs beside FPS. Select the section where cadence drops 
 Zoom into individual hooks and nested calls, then rank a selected range in **Bottom-up**. Expand a mod to inspect its hooks and functions. Each graph has its own channel choice; all graphs share navigation and the selected time range. Use **Min call**, next to **Range**, to focus on callbacks above a chosen duration in µs or ms. Shorter calls collapse into a single group with their count and summed self/total time in the callback tables. This changes the view, keeps the recording intact, and leaves FPS/frame statistics unchanged.
 
 In **Frames**, open **Slow-frame patterns** to find callback costs that repeatedly increase during slow intervals. Click an interval for **Why was this interval slow?**: extra callback self and unattributed wall time, compared with up to five nearby intervals with similar update activity and recorded room/entity state. References and coverage are shown so a correlation does not become a false diagnosis.
+
+The view explains the observed difference and suggests a next measurement. It also detects alternating update/render pacing and flags when one interval dominates the average. **Inspect evidence** opens an example; **Open callback / source** follows the measured function. References can expose spikes, but a cost shared by slow and reference intervals needs an absolute-cost or measurement-mode comparison. Keep all mods enabled when comparing capture scopes.
 
 ![Zoomed callback spans and per-hook costs](docs/images/callback-detail.png)
 

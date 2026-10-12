@@ -150,6 +150,19 @@ export interface LuaError {
   message: string;
   stack: string;
 }
+export interface PresentationSample {
+  id: number;
+  thread: number;
+  start: number;
+  duration: number;
+  swapStart: number;
+  swap: number;
+  readbackStart: number;
+  readback: number;
+  cycles: number | null;
+  swapCycles: number | null;
+  success: boolean;
+}
 export interface Telemetry {
   counters: CounterSample[];
   heap: HeapSample[];
@@ -269,7 +282,8 @@ export interface TreeRow extends Row {
   depth: number;
   children: TreeRow[];
 }
-export type SortKey = 'label' | 'exclusive' | 'inclusive' | 'maximum' | 'calls' | 'errors';
+export type SortKey =
+  'label' | 'exclusive' | 'inclusive' | 'maximum' | 'calls' | 'errors';
 export interface Query {
   minimumUs?: number;
   mode: 'mods' | 'callbacks' | 'hooks';
@@ -291,9 +305,15 @@ export interface Results {
   omitted?: { calls: number; self: number; total: number };
 }
 export interface WorkerOperations {
+  presentation: {
+    payload: import('./presentation.ts').PresentationQuery;
+    result: import('./presentation.ts').PresentationResult;
+  };
   diagnose: {
     payload: { start: number; end: number; kind: 1 | 2; top: number };
-    result: Awaited<ReturnType<typeof import('./diagnosis.ts').diagnoseCapture>>;
+    result: Awaited<
+      ReturnType<typeof import('./diagnosis.ts').diagnoseCapture>
+    >;
   };
   inventory: { payload: null; result: CaptureInventory | null };
   graph: {
@@ -307,7 +327,10 @@ export interface WorkerOperations {
     };
     result: import('./graphs.ts').GraphResult;
   };
-  frameDetail: { payload: FrameInterval; result: import('./frame-detail.ts').FrameDetail };
+  frameDetail: {
+    payload: FrameInterval;
+    result: import('./frame-detail.ts').FrameDetail;
+  };
   compare: {
     payload: { file: File; start: number; end: number };
     result: import('./comparison.ts').Comparison;
@@ -329,7 +352,12 @@ export interface WorkerOperations {
   load: { payload: { file: File }; result: LoadedTrace };
   viewport: {
     payload: { start: number; end: number; width: number; minimumUs?: number };
-    result: { packed: Float64Array; lanes: Lane[]; stride: number; visibleCount: number };
+    result: {
+      packed: Float64Array;
+      lanes: Lane[];
+      stride: number;
+      visibleCount: number;
+    };
   };
   source: {
     payload: { file: File; line: number };
@@ -337,7 +365,9 @@ export interface WorkerOperations {
   };
   rank: { payload: Query; result: Results };
   events: {
-    payload: Omit<Query, 'sort'> & { sort: 'start' | 'duration' | 'self' | 'depth' | 'activity' };
+    payload: Omit<Query, 'sort'> & {
+      sort: 'start' | 'duration' | 'self' | 'depth' | 'activity';
+    };
     result: {
       rows: TraceEvent[];
       count: number;

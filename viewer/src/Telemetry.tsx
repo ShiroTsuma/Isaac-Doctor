@@ -19,21 +19,33 @@ const markerNames = [
   'Run ended',
   'Exit run',
 ];
-export function cpuPoints(samples: CounterSample[], thread = false): [number, number][] {
+export function cpuPoints(
+  samples: CounterSample[],
+  thread = false,
+): [number, number][] {
   const result: [number, number][] = [];
   for (let i = 1; i < samples.length; i++) {
-    const a = samples[i - 1],
-      b = samples[i],
-      mask = thread ? 4 : 2;
-    if (!(a.valid & mask) || !(b.valid & mask) || (thread && a.thread !== b.thread)) continue;
-    const elapsed = b.time - a.time,
-      delta = thread
-        ? b.threadUser + b.threadKernel - a.threadUser - a.threadKernel
-        : b.processUser + b.processKernel - a.processUser - a.processKernel;
-    if (elapsed > 0 && delta >= 0) result.push([b.time, (delta / 10000 / elapsed) * 100]);
+    const a = samples[i - 1];
+    const b = samples[i];
+    const mask = thread ? 4 : 2;
+    if (
+      !(a.valid & mask) ||
+      !(b.valid & mask) ||
+      (thread && a.thread !== b.thread)
+    ) {
+      continue;
+    }
+    const elapsed = b.time - a.time;
+    const delta = thread
+      ? b.threadUser + b.threadKernel - a.threadUser - a.threadKernel
+      : b.processUser + b.processKernel - a.processUser - a.processKernel;
+    if (elapsed > 0 && delta >= 0) {
+      result.push([b.time, (delta / 10000 / elapsed) * 100]);
+    }
   }
   return result;
 }
+
 function Chart({
   label,
   points,
@@ -47,13 +59,18 @@ function Chart({
   unit: (n: number) => string;
   color: string;
 }) {
-  const max = Math.max(1, ...points.map((p) => p[1])),
-    span = Math.max(0.001, range[1] - range[0]);
+  const max = Math.max(1, ...points.map((p) => p[1]));
+  const span = Math.max(0.001, range[1] - range[0]);
   const buckets = new Map<number, [number, number]>();
   for (const p of points) {
-    const x = Math.max(0, Math.min(599, Math.floor(((p[0] - range[0]) / span) * 600))),
-      old = buckets.get(x);
-    if (!old || old[1] < p[1]) buckets.set(x, p);
+    const x = Math.max(
+      0,
+      Math.min(599, Math.floor(((p[0] - range[0]) / span) * 600)),
+    );
+    const old = buckets.get(x);
+    if (!old || old[1] < p[1]) {
+      buckets.set(x, p);
+    }
   }
   const line = [...buckets.values()]
     .map(
@@ -71,7 +88,12 @@ function Chart({
             : 'No samples in this recording / range'}
         </span>
       </div>
-      <svg viewBox="0 0 1000 70" preserveAspectRatio="none" role="img" aria-label={label}>
+      <svg
+        viewBox="0 0 1000 70"
+        preserveAspectRatio="none"
+        role="img"
+        aria-label={label}
+      >
         <path d="M0 65H1000" stroke="#3c4043" />
         <polyline
           points={line}
@@ -84,6 +106,7 @@ function Chart({
     </div>
   );
 }
+
 export default function Telemetry({
   data,
   range,
@@ -107,16 +130,20 @@ export default function Telemetry({
     const timer = setTimeout(() => {
       void request('telemetry', { start: range[0], end: range[1] })
         .then((result) => {
-          if (active) setState({ owner: data, start: range[0], end: range[1], result });
+          if (active) {
+            setState({ owner: data, start: range[0], end: range[1], result });
+          }
         })
         .catch((error: unknown) => {
-          if (active)
+          if (active) {
             setState({
               owner: data,
               start: range[0],
               end: range[1],
-              error: error instanceof Error ? error.message : 'Cannot read counters',
+              error:
+                error instanceof Error ? error.message : 'Cannot read counters',
             });
+          }
         });
     }, 100);
     return () => {
@@ -124,20 +151,23 @@ export default function Telemetry({
       clearTimeout(timer);
     };
   }, [data, range, request]);
-  const resolved = state?.owner === data && state.start === range[0] && state.end === range[1],
-    result = resolved ? state.result : undefined;
-  if (!resolved)
+  const resolved =
+    state?.owner === data && state.start === range[0] && state.end === range[1];
+  const result = resolved ? state.result : undefined;
+  if (!resolved) {
     return (
       <div className="telemetry-panel" role="status">
         Reading recorded counters…
       </div>
     );
-  if (!result)
+  }
+  if (!result) {
     return (
       <div className="telemetry-panel" role="alert">
         {state?.error}
       </div>
     );
+  }
   const info = result.inventory;
   const overhead = overheadEstimate(result.overhead ?? []);
   return (
@@ -154,13 +184,16 @@ export default function Telemetry({
             <br />
             Mods: {data.document.configuration.selectedMods.join(', ') || 'all'}
             <br />
-            Hooks: {data.document.configuration.selectedHooks.join(', ') || 'all'}
+            Hooks:{' '}
+            {data.document.configuration.selectedHooks.join(', ') || 'all'}
             <br />
-            Start: {triggerOptions[data.document.configuration.startOn]?.[1]} +{' '}
-            {data.document.configuration.startDelayMs} ms
+            Start: {
+              triggerOptions[data.document.configuration.startOn]?.[1]
+            } + {data.document.configuration.startDelayMs} ms
             <br />
-            Stop: {triggerOptions[data.document.configuration.stopOn]?.[1]} +{' '}
-            {data.document.configuration.stopDelayMs} ms
+            Stop: {
+              triggerOptions[data.document.configuration.stopOn]?.[1]
+            } + {data.document.configuration.stopDelayMs} ms
             <br />
             Maximum duration:{' '}
             {data.document.configuration.maxDurationMs
@@ -168,25 +201,30 @@ export default function Telemetry({
               : 'none'}
           </p>
           <p>
-            Costs from excluded child calls remain in measured parent self time. Disabled channels
-            are absent by choice.
+            Costs from excluded child calls remain in measured parent self time.
+            Disabled channels are absent by choice.
           </p>
         </details>
       )}
 
       <div className="telemetry-note">
-        Samples every 250 ms · CPU 100% = one logical core · Lua heap covers the whole VM
+        Samples every 250 ms · CPU 100% = one logical core · Lua heap covers the
+        whole VM
       </div>
       <Chart
         label="Working set"
-        points={result.counters.filter((s) => s.valid & 1).map((s) => [s.time, s.workingSet])}
+        points={result.counters
+          .filter((s) => s.valid & 1)
+          .map((s) => [s.time, s.workingSet])}
         range={range}
         unit={mib}
         color="#8ab4f8"
       />
       <Chart
         label="Private commit"
-        points={result.counters.filter((s) => s.valid & 1).map((s) => [s.time, s.privateBytes])}
+        points={result.counters
+          .filter((s) => s.valid & 1)
+          .map((s) => [s.time, s.privateBytes])}
         range={range}
         unit={mib}
         color="#c58af9"
@@ -221,7 +259,10 @@ export default function Telemetry({
       />
       <Chart
         label="Enemy projectiles / effects"
-        points={(result.context ?? []).map((s) => [s.time, s.projectiles + s.effects])}
+        points={(result.context ?? []).map((s) => [
+          s.time,
+          s.projectiles + s.effects,
+        ])}
         range={range}
         unit={(n) => String(n)}
         color="#f28b82"
@@ -231,21 +272,25 @@ export default function Telemetry({
         {overhead ? (
           <p>
             Wrapper estimate:{' '}
-            {overhead.wrapperMs === null ? 'not enough samples' : ms(overhead.wrapperMs)} over{' '}
-            {ms(overhead.spanMs)} · {overhead.samples.toLocaleString()} sampled entries /{' '}
-            {overhead.calls.toLocaleString()} calls.
+            {overhead.wrapperMs === null
+              ? 'not enough samples'
+              : ms(overhead.wrapperMs)}{' '}
+            over {ms(overhead.spanMs)} · {overhead.samples.toLocaleString()}{' '}
+            sampled entries / {overhead.calls.toLocaleString()} calls.
             <br />
             Native observers, context and heap: {ms(overhead.observerMs)}.<br />
-            Auxiliary packets omitted: {overhead.auxiliaryDropped} · context sample failures:{' '}
-            {overhead.contextFailures} · error records omitted: {overhead.errorsOmitted}.
+            Auxiliary packets omitted: {overhead.auxiliaryDropped} · context
+            sample failures: {overhead.contextFailures} · error records omitted:{' '}
+            {overhead.errorsOmitted}.
           </p>
         ) : (
           <p>No overhead estimate is available for this selection.</p>
         )}
         <p>
-          One wrapper sampled per 1,024 entries. Extra timing probes, pcall boundaries and reporting
-          affect the estimate. This excludes collector CPU, async screenshot encoding, cache/GC
-          effects and scheduling. Use independent A/B measurements for total impact.
+          One wrapper sampled per 1,024 entries. Extra timing probes, pcall
+          boundaries and reporting affect the estimate. This excludes collector
+          CPU, async screenshot encoding, cache/GC effects and scheduling. Use
+          independent A/B measurements for total impact.
         </p>
       </details>
       <table className="marker-table">
@@ -265,7 +310,10 @@ export default function Telemetry({
                 <button
                   className="row-button"
                   onClick={() =>
-                    setRange([Math.max(0, c.time - 125), Math.min(data.duration, c.time + 250)])
+                    setRange([
+                      Math.max(0, c.time - 125),
+                      Math.min(data.duration, c.time + 250),
+                    ])
                   }
                 >
                   {ms(c.time)}
@@ -297,12 +345,16 @@ export default function Telemetry({
                   className="row-button"
                   onClick={(event) => {
                     event.preventDefault();
-                    setRange([Math.max(0, e.time - 10), Math.min(data.duration, e.time + 10)]);
+                    setRange([
+                      Math.max(0, e.time - 10),
+                      Math.min(data.duration, e.time + 10),
+                    ]);
                   }}
                 >
                   {ms(e.time)}
                 </button>{' '}
-                · {data.metrics.find((m) => m.id === e.metric)?.mod} · {e.message}
+                · {data.metrics.find((m) => m.id === e.metric)?.mod} ·{' '}
+                {e.message}
               </summary>
               <pre>{e.stack}</pre>
             </details>
@@ -340,7 +392,12 @@ export default function Telemetry({
                   <tr key={i}>
                     <td>{s.mod}</td>
                     <td>{s.source}</td>
-                    <td>{s.sha256 || ['unresolved', '', 'size limit', 'read failed'][s.status]}</td>
+                    <td>
+                      {s.sha256 ||
+                        ['unresolved', '', 'size limit', 'read failed'][
+                          s.status
+                        ]}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -363,7 +420,10 @@ export default function Telemetry({
                 <button
                   className="row-button"
                   onClick={() =>
-                    setRange([Math.max(0, m.time - 500), Math.min(data.duration, m.time + 1000)])
+                    setRange([
+                      Math.max(0, m.time - 500),
+                      Math.min(data.duration, m.time + 1000),
+                    ])
                   }
                 >
                   {ms(m.time)}
@@ -374,7 +434,8 @@ export default function Telemetry({
                 {m.kind === 2 && m.flags & 1 ? ' (continued)' : ''}
               </td>
               <td>
-                Run {m.run || 'unknown'} · room transition #{m.room} · level transition #{m.level}
+                Run {m.run || 'unknown'} · room transition #{m.room} · level
+                transition #{m.level}
               </td>
             </tr>
           ))}
@@ -382,8 +443,8 @@ export default function Telemetry({
       </table>
       {!result.markers.length && (
         <p className="quiet">
-          No lifecycle markers in this range. Room/level counters are transitions observed since
-          attachment, not game IDs.
+          No lifecycle markers in this range. Room/level counters are
+          transitions observed since attachment, not game IDs.
         </p>
       )}
     </div>

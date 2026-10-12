@@ -4,13 +4,18 @@ import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..'),
-  origin = 'http://127.0.0.1:8765';
-let vite: ViteDevServer | undefined,
-  python: ChildProcess | undefined,
-  closing = false,
-  owned = false;
-const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
+const root = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../..',
+);
+const origin = 'http://127.0.0.1:8765';
+let vite: ViteDevServer | undefined;
+let python: ChildProcess | undefined;
+let closing = false;
+let owned = false;
+const message = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);
+
 async function json(
   route: string,
   body?: Record<string, unknown>,
@@ -25,29 +30,47 @@ async function json(
         }
       : {}),
   });
-  if (!response.ok) throw Error(`Controller HTTP ${response.status}`);
+  if (!response.ok) {
+    throw Error(`Controller HTTP ${response.status}`);
+  }
   const result: unknown = await response.json();
-  if (!result || typeof result !== 'object' || Array.isArray(result))
+  if (!result || typeof result !== 'object' || Array.isArray(result)) {
     throw Error('Invalid controller response');
+  }
   return result as Record<string, unknown>;
 }
+
 async function shutdown(stopRecording: boolean) {
   const session = await json('/api/session');
-  await json('/api/control', { token: session.token, command: 'shutdown', stopRecording });
+  await json('/api/control', {
+    token: session.token,
+    command: 'shutdown',
+    stopRecording,
+  });
 }
+
 async function close(code = 0) {
-  if (closing) return;
+  if (closing) {
+    return;
+  }
   closing = true;
   try {
-    if (owned) await shutdown(true);
+    if (owned) {
+      await shutdown(true);
+    }
   } catch (error) {
-    console.error(`Controller shutdown: ${message(error)}. Parent monitor will finish cleanup.`);
+    console.error(
+      `Controller shutdown: ${message(error)}. Parent monitor will finish cleanup.`,
+    );
   } finally {
     await vite?.close();
     process.exit(code);
   }
 }
-for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(signal, () => void close());
+
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.once(signal, () => void close());
+}
 try {
   vite = await createServer({ root: path.join(root, 'viewer') });
   await vite.listen();
@@ -62,9 +85,12 @@ try {
       health.app !== 'isaacprof' ||
       typeof health.root !== 'string' ||
       path.resolve(health.root).toLowerCase() !== root.toLowerCase()
-    )
+    ) {
       throw Error('Port 8765 belongs to another app.');
-    if (health.parent_pid) throw Error('Another managed dev session owns the controller.');
+    }
+    if (health.parent_pid) {
+      throw Error('Another managed dev session owns the controller.');
+    }
     await shutdown(false);
     for (let i = 0; i < 50; i++) {
       try {
@@ -92,7 +118,9 @@ try {
   });
   let ready = false;
   for (let i = 0; i < 100; i++) {
-    if (closing) break;
+    if (closing) {
+      break;
+    }
     try {
       const next = await json('/api/health');
       if (next.parent_pid === process.pid) {
@@ -105,7 +133,9 @@ try {
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  if (!ready) throw Error('Python controller did not start.');
+  if (!ready) {
+    throw Error('Python controller did not start.');
+  }
   vite.printUrls();
   console.log(
     `Vite PID ${process.pid} owns Python PID ${python.pid}. Ctrl+C stops recording, flushes capture and closes both.`,

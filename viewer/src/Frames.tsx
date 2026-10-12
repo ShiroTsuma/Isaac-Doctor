@@ -2,9 +2,15 @@ import SlowFramePatterns from './SlowFramePatterns.tsx';
 import SortableHeader from './SortableHeader.tsx';
 import { useEffect, useMemo, useState } from 'react';
 import { count, ms } from './trace.ts';
-import type { FrameResults, FrameRow, LoadedTrace, WorkerClient } from './types.ts';
+import type {
+  FrameResults,
+  FrameRow,
+  LoadedTrace,
+  WorkerClient,
+} from './types.ts';
 import './frames.css';
 import FrameInspector from './FrameInspector.tsx';
+import PresentationFrames from './PresentationFrames.tsx';
 
 export default function Frames({
   data,
@@ -19,12 +25,13 @@ export default function Frames({
   inspect: (frame: FrameRow, metric?: number) => void;
   setRange: (range: [number, number]) => void;
 }) {
-  type Sort = 'id' | 'start' | 'duration' | 'self' | 'calls' | 'worstMod' | 'metricSelf';
-  const [sort, setSort] = useState<Sort>('duration'),
-    [descending, setDescending] = useState(true);
-  const [kind, setKind] = useState<1 | 2>(2),
-    [minimumUs, setMinimumUs] = useState('0'),
-    [search, setSearch] = useState('');
+  type Sort =
+    'id' | 'start' | 'duration' | 'self' | 'calls' | 'worstMod' | 'metricSelf';
+  const [sort, setSort] = useState<Sort>('duration');
+  const [descending, setDescending] = useState(true);
+  const [kind, setKind] = useState<1 | 2>(2);
+  const [minimumUs, setMinimumUs] = useState('0');
+  const [search, setSearch] = useState('');
   const [budgetUs, setBudgetUs] = useState(
     () => localStorage.getItem('isaacprof.frame-budget-us') || '16667',
   );
@@ -33,16 +40,31 @@ export default function Frames({
     result?: FrameResults;
     error?: string;
   } | null>(null);
+  const [showPresentation, setShowPresentation] = useState(false);
   const queryKey = JSON.stringify([kind, range, minimumUs, search]);
   const [resolvedKey, setResolvedKey] = useState('');
   const [patterns, setPatterns] = useState(false);
-  const [selection, setSelection] = useState<{ data: LoadedTrace; frame: FrameRow } | null>(null);
+  const [selection, setSelection] = useState<{
+    data: LoadedTrace;
+    frame: FrameRow;
+  } | null>(null);
   useEffect(() => {
+    if (showPresentation) {
+      return;
+    }
     let active = true;
     const minimum = Number(minimumUs);
-    if (!Number.isSafeInteger(minimum) || minimum < 0 || minimum > 10000000) return;
+    if (!Number.isSafeInteger(minimum) || minimum < 0 || minimum > 10000000) {
+      return;
+    }
     const timer = setTimeout(() => {
-      void request('frames', { kind, start: range[0], end: range[1], minimumUs: minimum, search })
+      void request('frames', {
+        kind,
+        start: range[0],
+        end: range[1],
+        minimumUs: minimum,
+        search,
+      })
         .then((result) => {
           if (active) {
             setState({ data, result });
@@ -53,7 +75,10 @@ export default function Frames({
           if (active) {
             setState({
               data,
-              error: error instanceof Error ? error.message : 'Frame analysis failed',
+              error:
+                error instanceof Error
+                  ? error.message
+                  : 'Frame analysis failed',
             });
             setResolvedKey(queryKey);
           }
@@ -63,15 +88,27 @@ export default function Frames({
       active = false;
       clearTimeout(timer);
     };
-  }, [data, kind, range, minimumUs, search, request, queryKey]);
-  const result = state?.data === data ? state.result : undefined,
-    error = state?.data === data ? state.error : undefined;
+  }, [
+    data,
+    kind,
+    range,
+    minimumUs,
+    search,
+    request,
+    queryKey,
+    showPresentation,
+  ]);
+  const result = state?.data === data ? state.result : undefined;
+  const error = state?.data === data ? state.error : undefined;
   const rows = useMemo(
     () =>
       [...(result?.rows ?? [])].sort((a, b) => {
-        const x = a[sort],
-          y = b[sort],
-          value = typeof x === 'string' ? x.localeCompare(String(y)) : Number(x) - Number(y);
+        const x = a[sort];
+        const y = b[sort];
+        const value =
+          typeof x === 'string'
+            ? x.localeCompare(String(y))
+            : Number(x) - Number(y);
         return (descending ? -1 : 1) * value || a.start - b.start;
       }),
     [result, sort, descending],
@@ -81,13 +118,27 @@ export default function Frames({
     Number.isSafeInteger(Number(minimumUs)) &&
     Number(minimumUs) >= 0 &&
     Number(minimumUs) <= 10000000;
-  const budget = Number(budgetUs),
-    validBudget = Number.isSafeInteger(budget) && budget > 0 && budget <= 10000000;
+  const budget = Number(budgetUs);
+  const validBudget =
+    Number.isSafeInteger(budget) && budget > 0 && budget <= 10000000;
+
   function changeKind(value: 1 | 2) {
     setKind(value);
     setBudgetUs(value === 2 ? '16667' : '33333');
   }
-  if (selection?.data === data)
+
+  if (showPresentation) {
+    return (
+      <PresentationFrames
+        data={data}
+        range={range}
+        request={request}
+        close={() => setShowPresentation(false)}
+        setRange={setRange}
+      />
+    );
+  }
+  if (selection?.data === data) {
     return (
       <FrameInspector
         data={data}
@@ -97,7 +148,8 @@ export default function Frames({
         inspect={(id) => inspect(selection.frame, id)}
       />
     );
-  if (patterns)
+  }
+  if (patterns) {
     return (
       <SlowFramePatterns
         data={data}
@@ -106,11 +158,22 @@ export default function Frames({
         request={request}
         close={() => setPatterns(false)}
         inspect={(frame) => setSelection({ data, frame })}
+        openPresentation={() => setShowPresentation(true)}
+        inspectCallback={inspect}
       />
     );
+  }
   return (
     <div className="frames-panel">
       <div className="analysis-toolbar">
+        <button
+          id="presentation-frames"
+          className="small-button"
+          disabled={!data.streaming}
+          onClick={() => setShowPresentation(true)}
+        >
+          Presentation
+        </button>
         <button
           id="slow-frame-patterns"
           className="small-button"
@@ -155,8 +218,15 @@ export default function Frames({
             aria-invalid={!validBudget}
             onChange={(e) => {
               setBudgetUs(e.target.value);
-              if (Number.isSafeInteger(Number(e.target.value)) && Number(e.target.value) > 0)
-                localStorage.setItem('isaacprof.frame-budget-us', e.target.value);
+              if (
+                Number.isSafeInteger(Number(e.target.value)) &&
+                Number(e.target.value) > 0
+              ) {
+                localStorage.setItem(
+                  'isaacprof.frame-budget-us',
+                  e.target.value,
+                );
+              }
             }}
           />
         </label>
@@ -172,7 +242,10 @@ export default function Frames({
         {result && (
           <>
             {[
-              [kind === 2 ? 'FPS' : 'UPS', result.count ? result.rate.toFixed(1) : '\u2014'],
+              [
+                kind === 2 ? 'FPS' : 'UPS',
+                result.count ? result.rate.toFixed(1) : '\u2014',
+              ],
               ['Interval p50', result.count ? ms(result.p50) : '\u2014'],
               ['Interval p95', result.count ? ms(result.p95) : '\u2014'],
               ['Interval p99', result.count ? ms(result.p99) : '\u2014'],
@@ -200,7 +273,10 @@ export default function Frames({
             ? 'Enter a whole number from 0 to 10,000,000 µs.'
             : pending
               ? 'Analyzing frame intervals…'
-              : error || (result?.incomplete ? 'Incomplete recording / buffer losses' : '')}
+              : error ||
+                (result?.incomplete
+                  ? 'Incomplete recording / buffer losses'
+                  : '')}
         </output>
       </div>
       {result && !pending && !error && (
@@ -222,20 +298,29 @@ export default function Frames({
                 sort={sort}
                 descending={descending}
                 onSort={(key) => {
-                  if (sort === key) setDescending(!descending);
-                  else {
+                  if (sort === key) {
+                    setDescending(!descending);
+                  } else {
                     setSort(key);
-                    setDescending(key !== 'worstMod' && key !== 'start' && key !== 'id');
+                    setDescending(
+                      key !== 'worstMod' && key !== 'start' && key !== 'id',
+                    );
                   }
                 }}
               />
               <tbody id="frame-rows">
                 {rows.map((f) => {
-                  const metric = data.metrics.find((m) => m.id === f.worstMetric);
+                  const metric = data.metrics.find(
+                    (m) => m.id === f.worstMetric,
+                  );
                   return (
                     <tr
                       key={`${f.thread}:${f.id}`}
-                      className={validBudget && f.duration * 1000 > budget ? 'slow-frame' : ''}
+                      className={
+                        validBudget && f.duration * 1000 > budget
+                          ? 'slow-frame'
+                          : ''
+                      }
                     >
                       <td>
                         <button
@@ -249,7 +334,11 @@ export default function Frames({
                       <td>
                         {ms(f.start)}
                         <span className="source-inline">
-                          {kind === 2 ? (f.hasUpdate ? 'with update' : 'no update') : ''}
+                          {kind === 2
+                            ? f.hasUpdate
+                              ? 'with update'
+                              : 'no update'
+                            : ''}
                         </span>
                       </td>
                       <td>{ms(f.duration)}</td>
@@ -257,11 +346,16 @@ export default function Frames({
                       <td>{count(f.calls)}</td>
                       <td>
                         {f.worstMod || '—'}{' '}
-                        {f.worstMod && <span className="quiet">{ms(f.modSelf)}</span>}
+                        {f.worstMod && (
+                          <span className="quiet">{ms(f.modSelf)}</span>
+                        )}
                       </td>
                       <td>
                         {metric ? (
-                          <button className="row-button" onClick={() => inspect(f, metric.id)}>
+                          <button
+                            className="row-button"
+                            onClick={() => inspect(f, metric.id)}
+                          >
                             {metric.callback_name || metric.callback_id}{' '}
                             <span className="quiet">{ms(f.metricSelf)}</span>
                           </button>
@@ -279,7 +373,10 @@ export default function Frames({
                 {result.sessionCount
                   ? 'No complete frame intervals fit inside this selection. Expand the range to include a whole frame.'
                   : data.document.configuration &&
-                      !(data.document.configuration.channels & (kind === 2 ? 4 : 8))
+                      !(
+                        data.document.configuration.channels &
+                        (kind === 2 ? 4 : 8)
+                      )
                     ? 'The selected frame channel was disabled for this recording.'
                     : 'This recording has no frame intervals for the selected clock.'}
                 {result.enclosingRange && (
@@ -287,7 +384,9 @@ export default function Frames({
                     id="show-enclosing-frame"
                     className="small-button"
                     onClick={() => {
-                      if (result.enclosingRange) setRange(result.enclosingRange);
+                      if (result.enclosingRange) {
+                        setRange(result.enclosingRange);
+                      }
                     }}
                   >
                     Show enclosing frame
@@ -297,16 +396,18 @@ export default function Frames({
             )}
           </div>
           <div className="table-status">
-            Sorting slowest {count(result.rows.length)} of {count(result.slow)} matching intervals ·
-            percentile error ≤0.1% · rate = intervals / observed wall time
+            Sorting slowest {count(result.rows.length)} of {count(result.slow)}{' '}
+            matching intervals · percentile error ≤0.1% · rate = intervals /
+            observed wall time
           </div>
         </>
       )}
       <div className="frame-note">
-        Between consecutive MC_POST_{kind === 2 ? 'RENDER' : 'UPDATE'} markers; includes waiting.
-        Callback breakdown uses retained calls starting in the interval, including their full self
-        time. Update and render intervals overlap; do not add their totals. First and last partial
-        intervals are omitted.
+        Between consecutive MC_POST_{kind === 2 ? 'RENDER' : 'UPDATE'} markers;
+        includes waiting. Callback breakdown uses retained calls starting in the
+        interval, including their full self time. Update and render intervals
+        overlap; do not add their totals. First and last partial intervals are
+        omitted.
       </div>
     </div>
   );

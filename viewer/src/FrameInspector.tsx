@@ -4,7 +4,14 @@ import type { FrameDetail, FrameCost } from './frame-detail.ts';
 import type { FrameInterval, LoadedTrace, WorkerClient } from './types.ts';
 import { count, ms } from './trace.ts';
 
-type Sort = 'label' | 'self' | 'baselineSelf' | 'delta' | 'calls' | 'perCall' | 'baselinePerCall';
+type Sort =
+  | 'label'
+  | 'self'
+  | 'baselineSelf'
+  | 'delta'
+  | 'calls'
+  | 'perCall'
+  | 'baselinePerCall';
 const signed = (value: number) => `${value >= 0 ? '+' : ''}${ms(value)}`;
 export default function FrameInspector({
   data,
@@ -20,34 +27,39 @@ export default function FrameInspector({
   inspect: (id: number) => void;
 }) {
   const [state, setState] = useState<{
-      owner: LoadedTrace;
-      frame: FrameInterval;
-      result?: FrameDetail;
-      error?: string;
-    } | null>(null),
-    [expanded, setExpanded] = useState(new Set<string>());
-  const [sort, setSort] = useState<Sort>('delta'),
-    [descending, setDescending] = useState(true);
+    owner: LoadedTrace;
+    frame: FrameInterval;
+    result?: FrameDetail;
+    error?: string;
+  } | null>(null);
+  const [expanded, setExpanded] = useState(new Set<string>());
+  const [sort, setSort] = useState<Sort>('delta');
+  const [descending, setDescending] = useState(true);
   useEffect(() => {
     let active = true;
     void request('frameDetail', frame)
       .then((result) => {
-        if (active) setState({ owner: data, frame, result });
+        if (active) {
+          setState({ owner: data, frame, result });
+        }
       })
       .catch((e: unknown) => {
-        if (active)
+        if (active) {
           setState({
             owner: data,
             frame,
             error: e instanceof Error ? e.message : 'Cannot read frame details',
           });
+        }
       });
     return () => {
       active = false;
     };
   }, [data, frame, request]);
-  const result = state?.owner === data && state.frame === frame ? state.result : undefined;
+  const result =
+    state?.owner === data && state.frame === frame ? state.result : undefined;
   const rows: (FrameCost & { depth: number })[] = [];
+
   function value(c: FrameCost) {
     return sort === 'delta'
       ? c.self - c.baselineSelf
@@ -61,27 +73,34 @@ export default function FrameInspector({
             : 0
           : c[sort];
   }
+
   function visit(costs: FrameCost[], depth = 0) {
     for (const cost of [...costs].sort((a, b) => {
-      const x = value(a),
-        y = value(b);
+      const x = value(a);
+      const y = value(b);
       return (
         (descending ? -1 : 1) *
-          (typeof x === 'string' ? x.localeCompare(String(y)) : Number(x) - Number(y)) ||
-        a.key.localeCompare(b.key)
+          (typeof x === 'string'
+            ? x.localeCompare(String(y))
+            : Number(x) - Number(y)) || a.key.localeCompare(b.key)
       );
     })) {
       rows.push({ ...cost, depth });
-      if (cost.children && expanded.has(cost.key)) visit(cost.children, depth + 1);
+      if (cost.children && expanded.has(cost.key)) {
+        visit(cost.children, depth + 1);
+      }
     }
   }
-  if (result) visit(result.costs);
+
+  if (result) {
+    visit(result.costs);
+  }
   const wallDelta =
     result?.baselineWall !== null && result?.baselineWall !== undefined
       ? frame.duration - result.baselineWall
       : null;
-  const selfDelta = result ? result.self - result.baselineSelf : 0,
-    remainingDelta = wallDelta === null ? null : wallDelta - selfDelta;
+  const selfDelta = result ? result.self - result.baselineSelf : 0;
+  const remainingDelta = wallDelta === null ? null : wallDelta - selfDelta;
   const explanation = !result?.baseline
     ? 'No comparable reference intervals.'
     : wallDelta !== null && wallDelta <= 0.1
@@ -92,7 +111,9 @@ export default function FrameInspector({
           ? 'Boundary-crossing callbacks limit the wall-time comparison.'
           : wallDelta !== null && selfDelta >= wallDelta * 0.6
             ? 'Most observed extra wall time is accompanied by higher callback self time.'
-            : wallDelta !== null && remainingDelta !== null && remainingDelta >= wallDelta * 0.6
+            : wallDelta !== null &&
+                remainingDelta !== null &&
+                remainingDelta >= wallDelta * 0.6
               ? 'Most extra wall time is not attributed to measured callbacks. Engine work, waiting, GC and recorder overhead are not separately resolved.'
               : 'Both callback self and unattributed wall time increased.';
   return (
@@ -102,7 +123,8 @@ export default function FrameInspector({
           Back to frames
         </button>
         <b>
-          {frame.kind === 2 ? 'Render' : 'Update'} #{frame.id} · {ms(frame.start)}
+          {frame.kind === 2 ? 'Render' : 'Update'} #{frame.id} ·{' '}
+          {ms(frame.start)}
         </b>
       </div>
       {!result ? (
@@ -121,7 +143,8 @@ export default function FrameInspector({
               Callback self <b>{ms(result.self)}</b>
             </span>
             <span title="Wall minus retained callback self; not a CPU/GPU measurement">
-              Unattributed wall <b>{ms(Math.max(0, frame.duration - result.self))}</b>
+              Unattributed wall{' '}
+              <b>{ms(Math.max(0, frame.duration - result.self))}</b>
             </span>
             <span>
               {frame.kind === 2
@@ -132,6 +155,18 @@ export default function FrameInspector({
             </span>
           </div>
           <div className="frame-explanation" id="frame-explanation">
+            {result.presentation?.available && (
+              <div className="frame-note" id="frame-presentation">
+                Same-thread presentation coverage:{' '}
+                {ms(result.presentation.coverage)} / {ms(frame.duration)}. Time
+                in SwapBuffers overlapping this interval:{' '}
+                <b>{ms(result.presentation.swap)}</b>. Screenshot hook:{' '}
+                <b>{ms(result.presentation.readback)}</b>. Spans are clipped to
+                the selected Lua interval; presentation and Lua boundaries
+                differ. This is not GPU time. Work outside SwapBuffers can
+                include engine, Lua, waiting and scheduling.
+              </div>
+            )}
             <b>Why was this interval slow?</b>
             <p>{explanation}</p>
             <div>
@@ -142,22 +177,25 @@ export default function FrameInspector({
               ].map(([label, value]) => (
                 <span key={String(label)}>
                   {label}{' '}
-                  <strong>{typeof value === 'number' ? signed(value) : 'Unavailable'}</strong>
+                  <strong>
+                    {typeof value === 'number' ? signed(value) : 'Unavailable'}
+                  </strong>
                 </span>
               ))}
             </div>
             <small>
-              Differences are observations, not proof of causation. Native game API work and waiting
-              inside a callback count as callback self.
+              Differences are observations, not proof of causation. Native game
+              API work and waiting inside a callback count as callback self.
             </small>
           </div>
           <div className="frame-note">
             {result.baseline ? (
               <>
-                Reference: mean of {result.reference.frames.length} nearby intervals near the
-                typical duration, from {count(result.baselinePopulation)} candidates with the same
-                clock, thread and update activity. Mean wall {ms(result.baselineWall!)}.{' '}
-                {result.reference.reason}{' '}
+                Reference: mean of {result.reference.frames.length} nearby
+                intervals near the typical duration, from{' '}
+                {count(result.baselinePopulation)} candidates with the same
+                clock, thread and update activity. Mean wall{' '}
+                {ms(result.baselineWall!)}. {result.reference.reason}{' '}
                 {result.reference.frames.length < 3
                   ? 'Small reference population; treat differences cautiously.'
                   : ''}
@@ -170,12 +208,14 @@ export default function FrameInspector({
           <div className="frame-note">
             {result.context ? (
               <>
-                Room {result.context.room} · stage {result.context.stage}/{result.context.stageType}{' '}
-                · {result.context.width}×{result.context.height} · grids {result.context.grids}/
-                {result.context.gridSlots} · entities {result.context.entities} · enemies{' '}
-                {result.context.enemies} · tears {result.context.tears} · projectiles{' '}
-                {result.context.projectiles} · effects {result.context.effects} · sample{' '}
-                {ms(frame.start - result.context.time)} before interval
+                Room {result.context.room} · stage {result.context.stage}/
+                {result.context.stageType} · {result.context.width}×
+                {result.context.height} · grids {result.context.grids}/
+                {result.context.gridSlots} · entities {result.context.entities}{' '}
+                · enemies {result.context.enemies} · tears{' '}
+                {result.context.tears} · projectiles{' '}
+                {result.context.projectiles} · effects {result.context.effects}{' '}
+                · sample {ms(frame.start - result.context.time)} before interval
               </>
             ) : (
               'Fresh room context is unavailable for this interval.'
@@ -198,8 +238,9 @@ export default function FrameInspector({
                 sort={sort}
                 descending={descending}
                 onSort={(key) => {
-                  if (sort === key) setDescending(!descending);
-                  else {
+                  if (sort === key) {
+                    setDescending(!descending);
+                  } else {
                     setSort(key);
                     setDescending(key !== 'label');
                   }
@@ -216,8 +257,11 @@ export default function FrameInspector({
                           onClick={() =>
                             setExpanded((old) => {
                               const next = new Set(old);
-                              if (next.has(row.key)) next.delete(row.key);
-                              else next.add(row.key);
+                              if (next.has(row.key)) {
+                                next.delete(row.key);
+                              } else {
+                                next.add(row.key);
+                              }
                               return next;
                             })
                           }
@@ -226,7 +270,10 @@ export default function FrameInspector({
                         </button>
                       )}
                       {row.metric ? (
-                        <button className="row-button" onClick={() => inspect(row.metric!)}>
+                        <button
+                          className="row-button"
+                          onClick={() => inspect(row.metric!)}
+                        >
                           {row.label}
                         </button>
                       ) : (
@@ -235,14 +282,26 @@ export default function FrameInspector({
                     </td>
                     <td>{ms(row.self)}</td>
                     <td>{result.baseline ? ms(row.baselineSelf) : '—'}</td>
-                    <td>{result.baseline ? signed(row.self - row.baselineSelf) : '—'}</td>
                     <td>
-                      {count(row.calls)} / {result.baseline ? row.baselineCalls.toFixed(1) : '—'}
+                      {result.baseline
+                        ? signed(row.self - row.baselineSelf)
+                        : '—'}
                     </td>
-                    <td>{row.calls ? ((row.self * 1000) / row.calls).toFixed(2) : '—'}</td>
+                    <td>
+                      {count(row.calls)} /{' '}
+                      {result.baseline ? row.baselineCalls.toFixed(1) : '—'}
+                    </td>
+                    <td>
+                      {row.calls
+                        ? ((row.self * 1000) / row.calls).toFixed(2)
+                        : '—'}
+                    </td>
                     <td>
                       {row.baselineCalls
-                        ? ((row.baselineSelf * 1000) / row.baselineCalls).toFixed(2)
+                        ? (
+                            (row.baselineSelf * 1000) /
+                            row.baselineCalls
+                          ).toFixed(2)
                         : '—'}
                     </td>
                   </tr>
@@ -254,7 +313,10 @@ export default function FrameInspector({
                 <summary>
                   {ms(error.time)} · {error.message}
                 </summary>
-                <button className="row-button" onClick={() => inspect(error.metric)}>
+                <button
+                  className="row-button"
+                  onClick={() => inspect(error.metric)}
+                >
                   Inspect callback
                 </button>
                 <pre>{error.stack}</pre>
@@ -262,7 +324,8 @@ export default function FrameInspector({
             ))}
           </div>
           <div className="frame-note">
-            Self attribution uses retained calls starting in this interval on its thread.{' '}
+            Self attribution uses retained calls starting in this interval on
+            its thread.{' '}
             {result.boundaryCrossingCalls > 0
               ? `${count(result.boundaryCrossingCalls)} calls cross its end and include self time beyond the boundary.`
               : ''}{' '}

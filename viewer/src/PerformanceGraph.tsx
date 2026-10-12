@@ -21,8 +21,8 @@ export default function PerformanceGraph({
   slot: number;
   windowMs: number;
 }) {
-  const element = useRef<SVGSVGElement>(null),
-    [size, setSize] = useState({ width: 1000, height: 72 });
+  const element = useRef<SVGSVGElement>(null);
+  const [size, setSize] = useState({ width: 1000, height: 72 });
   useLayoutEffect(() => {
     const observer = new ResizeObserver(([entry]) =>
       setSize({
@@ -33,26 +33,40 @@ export default function PerformanceGraph({
     observer.observe(element.current!);
     return () => observer.disconnect();
   }, []);
-  const [hover, setHover] = useState<number | null>(null),
-    [hoverY, setHoverY] = useState(0),
-    [enabled, setEnabled] = useState(new Set(['mean', '50', '90', '99']));
-  const key = JSON.stringify([range, kind, windowMs]),
-    [state, setState] = useState<{
-      owner: LoadedTrace;
-      key: string;
-      result?: GraphResult;
-      error?: string;
-    } | null>(null);
+  const [hover, setHover] = useState<number | null>(null);
+  const [hoverY, setHoverY] = useState(0);
+  const [enabled, setEnabled] = useState(new Set(['mean', '50', '90', '99']));
+  const key = JSON.stringify([range, kind, windowMs]);
+  const [state, setState] = useState<{
+    owner: LoadedTrace;
+    key: string;
+    result?: GraphResult;
+    error?: string;
+  } | null>(null);
   useEffect(() => {
     let active = true;
     const timer = setTimeout(() => {
-      void request('graph', { kind, slot, start: range[0], end: range[1], columns: 1000, windowMs })
+      void request('graph', {
+        kind,
+        slot,
+        start: range[0],
+        end: range[1],
+        columns: 1000,
+        windowMs,
+      })
         .then((result) => {
-          if (active) setState({ owner: data, key, result });
+          if (active) {
+            setState({ owner: data, key, result });
+          }
         })
         .catch((e: unknown) => {
-          if (active)
-            setState({ owner: data, key, error: e instanceof Error ? e.message : 'Graph failed' });
+          if (active) {
+            setState({
+              owner: data,
+              key,
+              error: e instanceof Error ? e.message : 'Graph failed',
+            });
+          }
         });
     }, 150);
     return () => {
@@ -60,58 +74,80 @@ export default function PerformanceGraph({
       clearTimeout(timer);
     };
   }, [data, key, range, kind, slot, windowMs, request]);
-  const resolved = state?.owner === data && state.key === key,
-    result = resolved ? state.result : undefined,
-    points = result?.points ?? [],
-    series = result?.series?.filter((s) => enabled.has(s.key)),
-    span = Math.max(0.001, range[1] - range[0]),
-    displayed = series ? series.flatMap((s) => s.points) : points;
+  const resolved = state?.owner === data && state.key === key;
+  const result = resolved ? state.result : undefined;
+  const points = result?.points ?? [];
+  const series = result?.series?.filter((s) => enabled.has(s.key));
+  const span = Math.max(0.001, range[1] - range[0]);
+  const displayed = series ? series.flatMap((s) => s.points) : points;
   const maximum = displayed.reduce(
-      (max, p) => Math.max(max, p.value),
-      Math.max(1, result?.budget ?? 0),
-    ),
-    x = (time: number) => ((time - range[0]) / span) * 1000,
-    y = (value: number) => 66 - (value / maximum) * 60;
+    (max, p) => Math.max(max, p.value),
+    Math.max(1, result?.budget ?? 0),
+  );
+  const x = (time: number) => ((time - range[0]) / span) * 1000;
+  const y = (value: number) => 66 - (value / maximum) * 60;
   const nearest = (values: GraphPoint[]) =>
-      hover === null
-        ? null
-        : values.reduce<GraphPoint | null>(
-            (found, p) =>
-              !found || Math.abs(p.time - hover) < Math.abs(found.time - hover) ? p : found,
-            null,
-          ),
-    selected = nearest(points);
+    hover === null
+      ? null
+      : values.reduce<GraphPoint | null>(
+          (found, p) =>
+            !found || Math.abs(p.time - hover) < Math.abs(found.time - hover)
+              ? p
+              : found,
+          null,
+        );
+  const selected = nearest(points);
   const hovered = series
     ?.map((s) => ({ series: s, point: nearest(s.points) }))
     .filter((item) => item.point?.frame)
-    .sort((a, b) => Math.abs(y(a.point!.value) - hoverY) - Math.abs(y(b.point!.value) - hoverY))
-    .find((item) => Math.abs(y(item.point!.value) - hoverY) < (12 / size.height) * 72);
+    .sort(
+      (a, b) =>
+        Math.abs(y(a.point!.value) - hoverY) -
+        Math.abs(y(b.point!.value) - hoverY),
+    )
+    .find(
+      (item) =>
+        Math.abs(y(item.point!.value) - hoverY) < (12 / size.height) * 72,
+    );
   const picked = hovered?.point ?? selected;
+
   function focus(p: GraphPoint) {
-    if (p.frame) setRange([p.frame.start, p.frame.start + p.frame.duration]);
-    else setRange([Math.max(0, p.time - span / 20), Math.min(data.duration, p.time + span / 20)]);
+    if (p.frame) {
+      setRange([p.frame.start, p.frame.start + p.frame.duration]);
+    } else {
+      setRange([
+        Math.max(0, p.time - span / 20),
+        Math.min(data.duration, p.time + span / 20),
+      ]);
+    }
   }
+
   const navigation = useGraphNavigation({
     element,
     range,
     duration: data.duration,
     setRange,
     onClick: (e) => {
-      const bounds = e.currentTarget.getBoundingClientRect(),
-        time = range[0] + ((e.clientX - bounds.left) / bounds.width) * span,
-        p = points.reduce<GraphPoint | null>(
-          (found, p) =>
-            !found || Math.abs(p.time - time) < Math.abs(found.time - time) ? p : found,
-          null,
-        );
-      if (hovered?.point) focus(hovered.point);
-      else if (p) focus(p);
+      const bounds = e.currentTarget.getBoundingClientRect();
+      const time = range[0] + ((e.clientX - bounds.left) / bounds.width) * span;
+      const p = points.reduce<GraphPoint | null>(
+        (found, p) =>
+          !found || Math.abs(p.time - time) < Math.abs(found.time - time)
+            ? p
+            : found,
+        null,
+      );
+      if (hovered?.point) {
+        focus(hovered.point);
+      } else if (p) {
+        focus(p);
+      }
     },
   });
-  const sample = nearest(result?.series?.[0].points ?? []),
-    counts = result?.series?.[0].points.map((p) => p.count ?? 0) ?? [],
-    minCount = counts.length ? Math.min(...counts) : 0,
-    maxCount = counts.length ? Math.max(...counts) : 0;
+  const sample = nearest(result?.series?.[0].points ?? []);
+  const counts = result?.series?.[0].points.map((p) => p.count ?? 0) ?? [];
+  const minCount = counts.length ? Math.min(...counts) : 0;
+  const maxCount = counts.length ? Math.max(...counts) : 0;
   return (
     <div className="performance-graph">
       <div className="graph-series">
@@ -123,8 +159,11 @@ export default function PerformanceGraph({
             onClick={() =>
               setEnabled((old) => {
                 const next = new Set(old);
-                if (next.has(s.key)) next.delete(s.key);
-                else next.add(s.key);
+                if (next.has(s.key)) {
+                  next.delete(s.key);
+                } else {
+                  next.add(s.key);
+                }
                 return next;
               })
             }
@@ -138,8 +177,11 @@ export default function PerformanceGraph({
             className="graph-sample-count"
             title="Completed intervals in each rolling window. Below 100 intervals, nearest-rank p99 is the maximum; even 100 samples give only one upper-tail observation. Use 5-10 s for a less noisy p99."
           >
-            n={sample?.count ?? `${minCount}\u2013${maxCount}`} / {windowMs / 1000} s
-            {(sample?.count ?? minCount) < 100 ? ' · p99 = maximum (<100 intervals)' : ''}
+            n={sample?.count ?? `${minCount}\u2013${maxCount}`} /{' '}
+            {windowMs / 1000} s
+            {(sample?.count ?? minCount) < 100
+              ? ' · p99 = maximum (<100 intervals)'
+              : ''}
           </span>
         )}
         <span className="toolbar-fill" />
@@ -162,13 +204,19 @@ export default function PerformanceGraph({
         onPointerMove={(e) => {
           navigation.onPointerMove(e);
           const bounds = e.currentTarget.getBoundingClientRect();
-          setHover(range[0] + ((e.clientX - bounds.left) / bounds.width) * span);
+          setHover(
+            range[0] + ((e.clientX - bounds.left) / bounds.width) * span,
+          );
           setHoverY(((e.clientY - bounds.top) / bounds.height) * 72);
         }}
         onPointerLeave={() => setHover(null)}
       >
         {result?.budget && (
-          <path d={`M0 ${y(result.budget)}H1000`} stroke="#fdd663" strokeDasharray="4 4" />
+          <path
+            d={`M0 ${y(result.budget)}H1000`}
+            stroke="#fdd663"
+            strokeDasharray="4 4"
+          />
         )}
         {(series ?? [{ key: 'value', color: '#8ab4f8', points }]).map((s) => (
           <polyline
@@ -182,7 +230,11 @@ export default function PerformanceGraph({
           />
         ))}
         {points
-          .filter((p) => p.frame && p.maximum! > (p.frame.kind === 2 ? 1000 / 60 : 1000 / 30))
+          .filter(
+            (p) =>
+              p.frame &&
+              p.maximum! > (p.frame.kind === 2 ? 1000 / 60 : 1000 / 30),
+          )
           .map((p) => (
             <path
               key={`${p.frame!.thread}:${p.frame!.id}`}
@@ -236,14 +288,21 @@ export default function PerformanceGraph({
                   }}
                 >
                   <title>
-                    {s.label}: {p.value.toFixed(2)} {result?.unit} - interval #{p.frame!.id} at{' '}
-                    {ms(p.frame!.start)} - {ms(p.frame!.duration)} - {p.count} samples. Click to
-                    select contributing interval.
+                    {s.label}: {p.value.toFixed(2)} {result?.unit} - interval #
+                    {p.frame!.id} at {ms(p.frame!.start)} -{' '}
+                    {ms(p.frame!.duration)} - {p.count} samples. Click to select
+                    contributing interval.
                   </title>
                 </ellipse>
               )),
           )}
-        {hover !== null && <path d={`M${x(hover)} 0V72`} stroke="#9aa0a6" strokeDasharray="2 2" />}
+        {hover !== null && (
+          <path
+            d={`M${x(hover)} 0V72`}
+            stroke="#9aa0a6"
+            strokeDasharray="2 2"
+          />
+        )}
       </svg>
       <div className="graph-note" aria-live="polite">
         {result ? (
@@ -252,17 +311,23 @@ export default function PerformanceGraph({
               <button
                 className="row-button"
                 onClick={() => {
-                  if (picked) focus(picked);
+                  if (picked) {
+                    focus(picked);
+                  }
                 }}
               >
                 {ms(hover)} ·{' '}
                 {series
                   ?.map((s) => {
                     const p = nearest(s.points);
-                    return p ? `${s.label}: ${p.value.toFixed(2)} (${p.count} intervals)` : '—';
+                    return p
+                      ? `${s.label}: ${p.value.toFixed(2)} (${p.count} intervals)`
+                      : '—';
                   })
                   .join(' · ') ||
-                  (selected ? `${selected.value.toFixed(2)} ${result.unit}` : 'No samples')}
+                  (selected
+                    ? `${selected.value.toFixed(2)} ${result.unit}`
+                    : 'No samples')}
                 {picked?.frame
                   ? ` · ${hovered?.series.label ?? 'slowest'} #${picked.frame.id}: ${ms(picked.frame.duration)} · inspect`
                   : ''}

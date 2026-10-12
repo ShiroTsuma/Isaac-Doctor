@@ -9,29 +9,39 @@ export interface ReferenceMatch {
   quality: 'context-matched' | 'clock-only' | 'unavailable';
   reason: string;
 }
+
 function lowerBound(values: number[], value: number) {
-  let a = 0,
-    b = values.length;
+  let a = 0;
+  let b = values.length;
   while (a < b) {
     const m = (a + b) >>> 1;
-    if (values[m] < value) a = m + 1;
-    else b = m;
+    if (values[m] < value) {
+      a = m + 1;
+    } else {
+      b = m;
+    }
   }
   return a;
 }
+
 function upperBound(values: number[], value: number) {
-  let a = 0,
-    b = values.length;
+  let a = 0;
+  let b = values.length;
   while (a < b) {
     const m = (a + b) >>> 1;
-    if (values[m] <= value) a = m + 1;
-    else b = m;
+    if (values[m] <= value) {
+      a = m + 1;
+    } else {
+      b = m;
+    }
   }
   return a;
 }
+
 function near(a: number, b: number) {
   return Math.abs(a - b) <= Math.max(2, Math.min(a, b) * 0.1);
 }
+
 export function similarRoom(a: RoomContext, b: RoomContext) {
   return (
     a.room === b.room &&
@@ -54,7 +64,11 @@ export function similarRoom(a: RoomContext, b: RoomContext) {
 /** Shared by CLI diagnosis and the inspector. Matching never crosses a recorded transition. */
 export class FrameReferenceIndex {
   private updates = new Map<number, number[]>();
-  private groups = new Map<string, { frames: FrameInterval[]; times: number[] }>();
+  private groups = new Map<
+    string,
+    { frames: FrameInterval[]; times: number[] }
+  >();
+
   private contexts: RoomContext[];
   private recordedContext: boolean;
   private contextTimes: number[];
@@ -69,16 +83,19 @@ export class FrameReferenceIndex {
       .filter((m) => [2, 3, 4, 5, 6].includes(m.kind))
       .map((m) => m.time)
       .sort((a, b) => a - b);
-    for (const f of intervals)
+    for (const f of intervals) {
       if (f.kind === 1) {
         const times = this.updates.get(f.thread) ?? [];
         times.push(f.start + f.duration);
         this.updates.set(f.thread, times);
       }
-    for (const times of this.updates.values()) times.sort((a, b) => a - b);
+    }
+    for (const times of this.updates.values()) {
+      times.sort((a, b) => a - b);
+    }
     for (const f of intervals) {
-      const key = this.key(f),
-        group = this.groups.get(key) ?? { frames: [], times: [] };
+      const key = this.key(f);
+      const group = this.groups.get(key) ?? { frames: [], times: [] };
       group.frames.push(f);
       this.groups.set(key, group);
     }
@@ -87,17 +104,20 @@ export class FrameReferenceIndex {
       group.times = group.frames.map((f) => f.start);
     }
   }
+
   hasUpdate(f: FrameInterval) {
-    const times = this.updates.get(f.thread) ?? [],
-      at = lowerBound(times, f.start);
+    const times = this.updates.get(f.thread) ?? [];
+    const at = lowerBound(times, f.start);
     return at < times.length && times[at] < f.start + f.duration;
   }
+
   private key(f: FrameInterval) {
     return `${f.kind}:${f.thread}:${f.kind === 2 && this.hasUpdate(f)}`;
   }
+
   context(f: FrameInterval) {
-    const c = this.contexts[upperBound(this.contextTimes, f.start) - 1],
-      transition = upperBound(this.transitions, f.start) - 1;
+    const c = this.contexts[upperBound(this.contextTimes, f.start) - 1];
+    const transition = upperBound(this.transitions, f.start) - 1;
     return c &&
       f.start - c.time <= 500 &&
       c.time >= (this.transitions[transition] ?? -Infinity) &&
@@ -105,10 +125,11 @@ export class FrameReferenceIndex {
       ? c
       : undefined;
   }
+
   match(frame: FrameInterval): ReferenceMatch {
-    const hasUpdate = this.hasUpdate(frame),
-      context = this.context(frame),
-      epoch = upperBound(this.transitions, frame.start);
+    const hasUpdate = this.hasUpdate(frame);
+    const context = this.context(frame);
+    const epoch = upperBound(this.transitions, frame.start);
     const empty = (reason: string): ReferenceMatch => ({
       frames: [],
       population: 0,
@@ -118,16 +139,27 @@ export class FrameReferenceIndex {
       quality: 'unavailable',
       reason,
     });
-    if ((this.transitions[epoch] ?? Infinity) < frame.start + frame.duration)
+    if ((this.transitions[epoch] ?? Infinity) < frame.start + frame.duration) {
       return empty('Interval crosses a recorded run/room/level transition.');
-    if (this.recordedContext && !context)
-      return empty('No valid room sample within 500 ms after the most recent transition.');
+    }
+    if (this.recordedContext && !context) {
+      return empty(
+        'No valid room sample within 500 ms after the most recent transition.',
+      );
+    }
     const group = this.groups.get(this.key(frame));
-    if (!group) return empty('No intervals with the same clock, thread and update activity.');
-    const a = lowerBound(group.times, frame.start - 5000),
-      b = upperBound(group.times, frame.start + 5000);
-    if (b - a > 10000)
-      return empty('Too many nearby intervals for bounded matching; select a shorter range.');
+    if (!group) {
+      return empty(
+        'No intervals with the same clock, thread and update activity.',
+      );
+    }
+    const a = lowerBound(group.times, frame.start - 5000);
+    const b = upperBound(group.times, frame.start + 5000);
+    if (b - a > 10000) {
+      return empty(
+        'Too many nearby intervals for bounded matching; select a shorter range.',
+      );
+    }
     const candidates = group.frames.slice(a, b).filter(
       (f) =>
         !(f.id === frame.id && f.start === frame.start) &&
@@ -140,12 +172,15 @@ export class FrameReferenceIndex {
             return !!other && similarRoom(context, other);
           })()),
     );
-    if (!candidates.length) return empty('No nearby intervals with comparable recorded state.');
-    const durations = candidates.map((f) => f.duration).sort((a, b) => a - b),
-      normalLimit = durations[Math.max(0, Math.ceil(durations.length * 0.9) - 1)];
-    const normal = candidates.filter((f) => f.duration <= normalLimit),
-      sorted = normal.map((f) => f.duration).sort((a, b) => a - b),
-      median = sorted[Math.floor((sorted.length - 1) / 2)];
+    if (!candidates.length) {
+      return empty('No nearby intervals with comparable recorded state.');
+    }
+    const durations = candidates.map((f) => f.duration).sort((a, b) => a - b);
+    const normalLimit =
+      durations[Math.max(0, Math.ceil(durations.length * 0.9) - 1)];
+    const normal = candidates.filter((f) => f.duration <= normalLimit);
+    const sorted = normal.map((f) => f.duration).sort((a, b) => a - b);
+    const median = sorted[Math.floor((sorted.length - 1) / 2)];
     normal.sort(
       (a, b) =>
         Math.abs(a.duration - median) - Math.abs(b.duration - median) ||

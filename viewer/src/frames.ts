@@ -10,9 +10,9 @@ import type { FrameSummary } from './analysis-cache.ts';
 
 // Fixed memory histogram: percentile upper bounds have <=0.1% relative error.
 // Native QPC durations are kept intact in the file; only summary quantiles are binned.
-const ratio = 1.001,
-  logRatio = Math.log(ratio),
-  minimum = 1e-6;
+const ratio = 1.001;
+const logRatio = Math.log(ratio);
+const minimum = 1e-6;
 export async function frameResults(
   intervals: AsyncIterable<FrameInterval>,
   events: (start: number, end: number) => AsyncIterable<TraceEvent>,
@@ -28,25 +28,39 @@ export async function frameResults(
   ) => Promise<void>,
   candidateLimit = 500,
 ): Promise<FrameResults> {
-  const bins = new Float64Array(32768),
-    candidates: FrameRow[] = [];
-  let count = 0,
-    slow = 0,
-    total = 0,
-    maximum = 0;
+  const bins = new Float64Array(32768);
+  const candidates: FrameRow[] = [];
+  let count = 0;
+  let slow = 0;
+  let total = 0;
+  let maximum = 0;
   for await (const f of intervals) {
-    if (f.kind !== query.kind || f.start < query.start || f.start >= query.end) continue;
+    if (
+      f.kind !== query.kind ||
+      f.start < query.start ||
+      f.start >= query.end
+    ) {
+      continue;
+    }
     count++;
     total += f.duration;
     maximum = Math.max(maximum, f.duration);
-    if (!summary)
+    if (!summary) {
       bins[
         Math.min(
           bins.length - 1,
-          Math.max(0, Math.ceil(Math.log(Math.max(minimum, f.duration) / minimum) / logRatio)),
+          Math.max(
+            0,
+            Math.ceil(
+              Math.log(Math.max(minimum, f.duration) / minimum) / logRatio,
+            ),
+          ),
         )
       ]++;
-    if (f.duration * 1000 < query.minimumUs) continue;
+    }
+    if (f.duration * 1000 < query.minimumUs) {
+      continue;
+    }
     slow++;
     candidates.push({
       ...f,
@@ -66,46 +80,64 @@ export async function frameResults(
   candidates.length = Math.min(candidates.length, candidateLimit);
   // The Cartesian product of 500 intervals and thousands of registered metrics
   // used to exceed 200k counters. Bound only live counters, release each batch.
-  const batchSize = Math.max(1, Math.min(32, Math.floor(200000 / Math.max(1, metrics.size))));
+  const batchSize = Math.max(
+    1,
+    Math.min(32, Math.floor(200000 / Math.max(1, metrics.size))),
+  );
   const chronological = candidates.slice().sort((a, b) => a.start - b.start);
   for (let at = 0; at < chronological.length; at += batchSize) {
-    const batch = chronological.slice(at, at + batchSize),
-      byThread = new Map<number, FrameRow[]>(),
-      totals = new Map<FrameRow, Map<number, number>>();
+    const batch = chronological.slice(at, at + batchSize);
+    const byThread = new Map<number, FrameRow[]>();
+    const totals = new Map<FrameRow, Map<number, number>>();
     for (const f of batch) {
-      if (!byThread.has(f.thread)) byThread.set(f.thread, []);
+      if (!byThread.has(f.thread)) {
+        byThread.set(f.thread, []);
+      }
       byThread.get(f.thread)!.push(f);
       totals.set(f, new Map());
     }
-    const start = Math.min(...batch.map((f) => f.start)),
-      end = Math.max(...batch.map((f) => f.start + f.duration));
+    const start = Math.min(...batch.map((f) => f.start));
+    const end = Math.max(...batch.map((f) => f.start + f.duration));
     const consume = (e: TraceEvent) => {
       const rows = byThread.get(e.thread);
-      if (!rows) return;
-      let low = 0,
-        high = rows.length;
+      if (!rows) {
+        return;
+      }
+      let low = 0;
+      let high = rows.length;
       while (low < high) {
         const mid = (low + high) >>> 1;
-        if (rows[mid].start <= e.start) low = mid + 1;
-        else high = mid;
+        if (rows[mid].start <= e.start) {
+          low = mid + 1;
+        } else {
+          high = mid;
+        }
       }
       const f = rows[low - 1];
-      if (!f || e.start >= f.start + f.duration) return;
+      if (!f || e.start >= f.start + f.duration) {
+        return;
+      }
       const m = metrics.get(e.metric);
-      if (!m) return;
+      if (!m) {
+        return;
+      }
       f.calls++;
       f.self += e.self;
       const t = totals.get(f)!;
       t.set(e.metric, (t.get(e.metric) ?? 0) + e.self);
     };
-    if (visitEvents)
+    if (visitEvents) {
       await visitEvents(
         start,
         end,
         consume,
         batch.map((f) => [f.start, f.start + f.duration]),
       );
-    else for await (const e of events(start, end)) consume(e);
+    } else {
+      for await (const e of events(start, end)) {
+        consume(e);
+      }
+    }
     for (const f of batch) {
       const mods = new Map<string, number>();
       for (const [id, self] of totals.get(f)!) {
@@ -116,23 +148,30 @@ export async function frameResults(
           f.metricSelf = self;
         }
       }
-      for (const [mod, self] of mods)
+      for (const [mod, self] of mods) {
         if (!f.worstMod || self > f.modSelf) {
           f.worstMod = mod;
           f.modSelf = self;
         }
+      }
     }
   }
+
   function percentile(p: number) {
-    if (!count) return 0;
+    if (!count) {
+      return 0;
+    }
     const target = Math.ceil(count * p);
     let sum = 0;
     for (let i = 0; i < bins.length; i++) {
       sum += bins[i];
-      if (sum >= target) return Math.min(maximum, minimum * Math.pow(ratio, i));
+      if (sum >= target) {
+        return Math.min(maximum, minimum * Math.pow(ratio, i));
+      }
     }
     return maximum;
   }
+
   const search = query.search.trim().toLowerCase();
   return {
     rows: candidates.filter(

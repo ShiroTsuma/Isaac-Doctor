@@ -21,6 +21,7 @@ export interface RecordingStatus {
   captureScope?: boolean;
 }
 type Status = RecordingStatus;
+
 function parseStatus(value: unknown): Status {
   if (
     !value ||
@@ -33,16 +34,22 @@ function parseStatus(value: unknown): Status {
     typeof value.message !== 'string' ||
     !('report' in value) ||
     typeof value.report !== 'string'
-  )
+  ) {
     throw Error('Invalid controller response');
+  }
   return {
     ok: value.ok,
     state: value.state,
     message: value.message,
     report: value.report,
-    elapsedMs: 'elapsedMs' in value && typeof value.elapsedMs === 'number' ? value.elapsedMs : 0,
+    elapsedMs:
+      'elapsedMs' in value && typeof value.elapsedMs === 'number'
+        ? value.elapsedMs
+        : 0,
     durationMs:
-      'durationMs' in value && typeof value.durationMs === 'number' ? value.durationMs : 0,
+      'durationMs' in value && typeof value.durationMs === 'number'
+        ? value.durationMs
+        : 0,
     updatedAt: performance.now(),
     captureScope: 'captureScope' in value && value.captureScope === true,
     availableTriggers:
@@ -53,40 +60,59 @@ function parseStatus(value: unknown): Status {
         : undefined,
   };
 }
+
 async function controllerJson(response: Response): Promise<unknown> {
-  if (!response.headers.get('Content-Type')?.includes('application/json'))
-    throw Error('The local server is unavailable. Start Isaac Doctor and reload this page.');
-  const value: unknown = await response.json();
-  if (!response.ok)
+  if (!response.headers.get('Content-Type')?.includes('application/json')) {
     throw Error(
-      value && typeof value === 'object' && 'message' in value && typeof value.message === 'string'
+      'The local server is unavailable. Start Isaac Doctor and reload this page.',
+    );
+  }
+  const value: unknown = await response.json();
+  if (!response.ok) {
+    throw Error(
+      value &&
+        typeof value === 'object' &&
+        'message' in value &&
+        typeof value.message === 'string'
         ? value.message
         : 'Controller request failed',
     );
+  }
   return value;
 }
-export default function RecordingControls({ onStatus }: { onStatus: (status: Status) => void }) {
+
+export default function RecordingControls({
+  onStatus,
+}: {
+  onStatus: (status: Status) => void;
+}) {
   const [status, setStatus] = useState<Status>({
     ok: false,
     state: 'disconnected',
     message: '',
     report: '',
   });
-  const [seconds, setSeconds] = useState(25),
-    [screenshots, setScreenshots] = useState(true),
-    [screenshotMs, setScreenshotMs] = useState(500),
-    [busy, setBusy] = useState(false),
-    [error, setError] = useState('');
+  const [seconds, setSeconds] = useState(25);
+  const [screenshots, setScreenshots] = useState(true);
+  const [screenshotMs, setScreenshotMs] = useState(500);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
   const [config, setConfig] = useState(readRecordingConfig);
-  const [scope, setScope] = useState(readCaptureScope),
-    [catalog, setCatalog] = useState<{ mods: string[]; hooks: string[] }>({ mods: [], hooks: [] });
+  const [scope, setScope] = useState(readCaptureScope);
+  const [catalog, setCatalog] = useState<{ mods: string[]; hooks: string[] }>({
+    mods: [],
+    hooks: [],
+  });
   const [scopeError, setScopeError] = useState('');
-  const [catalogState, setCatalogState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [catalogState, setCatalogState] = useState<
+    'idle' | 'loading' | 'ready' | 'error'
+  >('idle');
   const catalogRequest = useRef<AbortController | null>(null);
   const [drafts, setDrafts] = useState(() => ({
     selectedMods: scope.selectedMods.join('\n'),
     selectedHooks: scope.selectedHooks.join('\n'),
   }));
+
   function selectScope(next: typeof scope) {
     setDrafts({
       selectedMods: next.selectedMods.join('\n'),
@@ -95,6 +121,7 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
     setScope(next);
     localStorage.setItem('isaacprof.capture-scope', JSON.stringify(next));
   }
+
   const loadCatalog = useCallback(async () => {
     catalogRequest.current?.abort();
     const abort = new AbortController();
@@ -102,7 +129,9 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
     setScopeError('');
     setCatalogState('loading');
     try {
-      const value = await controllerJson(await fetch('/api/catalog', { signal: abort.signal }));
+      const value = await controllerJson(
+        await fetch('/api/catalog', { signal: abort.signal }),
+      );
       if (
         !value ||
         typeof value !== 'object' ||
@@ -112,8 +141,9 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
         !('hooks' in value) ||
         !Array.isArray(value.hooks) ||
         !value.hooks.every((v: unknown) => typeof v === 'string')
-      )
+      ) {
         throw Error('Invalid callback catalog');
+      }
       if (!abort.signal.aborted) {
         setCatalog({ mods: value.mods, hooks: value.hooks });
         setCatalogState('ready');
@@ -122,38 +152,56 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
       if (!abort.signal.aborted) {
         setCatalog({ mods: [], hooks: [] });
         setCatalogState('error');
-        setScopeError(error instanceof Error ? error.message : 'Could not read callback catalog');
+        setScopeError(
+          error instanceof Error
+            ? error.message
+            : 'Could not read callback catalog',
+        );
       }
     }
   }, []);
   useEffect(() => {
-    if (status.ok && status.state === 'ready') void loadCatalog();
+    if (status.ok && status.state === 'ready') {
+      void loadCatalog();
+    }
     return () => catalogRequest.current?.abort();
   }, [status.ok, status.state, loadCatalog]);
 
-  function configure<K extends keyof RecordingConfig>(key: K, value: RecordingConfig[K]) {
+  function configure<K extends keyof RecordingConfig>(
+    key: K,
+    value: RecordingConfig[K],
+  ) {
     setConfig((previous) => {
       const next = { ...previous, [key]: value };
-      if (validRecordingConfig(next))
+      if (validRecordingConfig(next)) {
         localStorage.setItem(
           'isaacprof.recording-triggers',
           JSON.stringify(effectiveRecordingConfig(next)),
         );
+      }
       return next;
     });
   }
-  const inFlight = useRef(false),
-    sequence = useRef(0);
-  const serverClosed = status.state === 'server-stopped' || status.state === 'server-unavailable';
+
+  const inFlight = useRef(false);
+  const sequence = useRef(0);
+  const serverClosed =
+    status.state === 'server-stopped' || status.state === 'server-unavailable';
   const [minimumUs, setMinimumUs] = useState(() => {
     const saved = Number(localStorage.getItem('isaacprof.minimum-us'));
-    return Number.isInteger(saved) && saved >= 0 && saved <= 1000000 ? saved : 0;
+    return Number.isInteger(saved) && saved >= 0 && saved <= 1000000
+      ? saved
+      : 0;
   });
   useEffect(() => {
-    if (serverClosed) return;
+    if (serverClosed) {
+      return;
+    }
     const abort = new AbortController();
     const update = async () => {
-      if (inFlight.current) return;
+      if (inFlight.current) {
+        return;
+      }
       const id = sequence.current;
       try {
         const response = await fetch('/api/status', { signal: abort.signal });
@@ -167,7 +215,8 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
           const unavailable = {
             ok: false,
             state: 'server-unavailable',
-            message: 'Local server unavailable. Start Isaac Doctor, then reload this page.',
+            message:
+              'Local server unavailable. Start Isaac Doctor, then reload this page.',
             report: '',
           };
           setStatus(unavailable);
@@ -182,13 +231,18 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
       clearInterval(timer);
     };
   }, [onStatus, serverClosed]);
+
   async function command(command: 'attach' | 'record' | 'stop' | 'shutdown') {
-    if (inFlight.current) return;
+    if (inFlight.current) {
+      return;
+    }
     inFlight.current = true;
     sequence.current++;
     setBusy(true);
     setError('');
-    if (command === 'stop') onStatus({ ...status, state: 'saving' });
+    if (command === 'stop') {
+      onStatus({ ...status, state: 'saving' });
+    }
     try {
       const sessionResponse = await fetch('/api/session');
       const session = await controllerJson(sessionResponse);
@@ -197,24 +251,30 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
         typeof session !== 'object' ||
         !('token' in session) ||
         typeof session.token !== 'string'
-      )
+      ) {
         throw Error('Invalid controller session');
+      }
       if (
         command === 'record' &&
         (!Number.isInteger(minimumUs) || minimumUs < 0 || minimumUs > 1000000)
-      )
-        throw Error('Minimum duration must be an integer from 0 to 1,000,000 µs.');
+      ) {
+        throw Error(
+          'Minimum duration must be an integer from 0 to 1,000,000 µs.',
+        );
+      }
       const effective = effectiveRecordingConfig(config);
-      if (command === 'record' && !validRecordingConfig(config))
+      if (command === 'record' && !validRecordingConfig(config)) {
         throw Error(
           'Delays must be 0..3,600,000 ms; enabled maximum duration must be 1..3,600 whole seconds. Empty delays mean 0.',
         );
+      }
       if (
         command === 'record' &&
         config.stopOn === 'duration' &&
         (!Number.isInteger(seconds) || seconds < 1 || seconds > 3600)
-      )
+      ) {
         throw Error('Recording duration must be 1..3,600 whole seconds.');
+      }
       if (
         command === 'record' &&
         !status.availableTriggers &&
@@ -222,14 +282,20 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
           config.stopDelayMs ||
           !['immediate', 'run-load'].includes(config.startOn) ||
           config.stopOn !== 'duration')
-      )
-        throw Error('Restart Isaac Doctor and reload this page to enable configurable triggers.');
+      ) {
+        throw Error(
+          'Restart Isaac Doctor and reload this page to enable configurable triggers.',
+        );
+      }
       if (
         command === 'record' &&
         !status.captureScope &&
         (scope.channels !== 2047 || drafts.selectedMods || drafts.selectedHooks)
-      )
-        throw Error('Restart the local controller to enable capture scope configuration.');
+      ) {
+        throw Error(
+          'Restart the local controller to enable capture scope configuration.',
+        );
+      }
       const response = await fetch('/api/control', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -258,7 +324,9 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
             ? seconds * 1000 + effective.stopDelayMs
             : effective.maxDurationMs),
       });
-      if (!next.ok) setError(next.message);
+      if (!next.ok) {
+        setError(next.message);
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Controller failed');
       onStatus(status);
@@ -267,6 +335,7 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
       setBusy(false);
     }
   }
+
   const recording = status.state === 'recording' || status.state === 'armed';
   const canReadCatalog = status.ok && status.state === 'ready';
   const catalogLoading = canReadCatalog && catalogState === 'loading';
@@ -287,7 +356,8 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
     status.availableTriggers
       ? status.availableTriggers.includes(id)
       : ['immediate', 'run-load', 'duration'].includes(id);
-  const stopLabel = triggerOptions.find(([id]) => id === config.stopOn)?.[1] ?? config.stopOn;
+  const stopLabel =
+    triggerOptions.find(([id]) => id === config.stopOn)?.[1] ?? config.stopOn;
   const effective = effectiveRecordingConfig(config);
   const stopDescription =
     config.stopOn === 'manual'
@@ -297,7 +367,11 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
         : `${stopLabel}${effective.stopDelayMs ? ` + ${effective.stopDelayMs} ms stop delay` : ''} ends the recording.`;
   return (
     <>
-      <div className="recording-controls" role="group" aria-label="Game recording">
+      <div
+        className="recording-controls"
+        role="group"
+        aria-label="Game recording"
+      >
         <button
           id="attach-game"
           disabled={busy || recording || serverClosed}
@@ -315,7 +389,11 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
           <span className="record-dot" />
           Record
         </button>
-        <button id="stop-game" disabled={busy || !recording} onClick={() => void command('stop')}>
+        <button
+          id="stop-game"
+          disabled={busy || !recording}
+          onClick={() => void command('stop')}
+        >
           {status.state === 'armed' ? 'Cancel' : 'Stop'}
         </button>
         <button
@@ -339,8 +417,9 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
             onChange={(e) => {
               const value = e.target.valueAsNumber;
               setMinimumUs(value);
-              if (Number.isInteger(value) && value >= 0 && value <= 1000000)
+              if (Number.isInteger(value) && value >= 0 && value <= 1000000) {
                 localStorage.setItem('isaacprof.minimum-us', String(value));
+              }
             }}
           />{' '}
           µs
@@ -367,7 +446,10 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
           <option value={1000}>1 s</option>
           <option value={2000}>2 s</option>
         </select>
-        <output id="record-status" title={error || `${status.message}\n${status.report}`}>
+        <output
+          id="record-status"
+          title={error || `${status.message}\n${status.report}`}
+        >
           {busy
             ? 'Contacting game…'
             : error ||
@@ -384,12 +466,16 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
         <div className="server-closed-notice" role="status">
           <span>
             <strong>
-              Local server {status.state === 'server-stopped' ? 'stopped' : 'unavailable'}.
+              Local server{' '}
+              {status.state === 'server-stopped' ? 'stopped' : 'unavailable'}.
             </strong>{' '}
-            Loaded analysis stays available. Start Isaac Doctor again, then reload this page to
-            reconnect.
+            Loaded analysis stays available. Start Isaac Doctor again, then
+            reload this page to reconnect.
           </span>
-          <button className="scope-action" onClick={() => window.location.reload()}>
+          <button
+            className="scope-action"
+            onClick={() => window.location.reload()}
+          >
             Reload page
           </button>
         </div>
@@ -405,7 +491,9 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
             id="record-start-on"
             value={config.startOn}
             disabled={recording}
-            onChange={(e) => configure('startOn', e.target.value as CaptureTrigger)}
+            onChange={(e) =>
+              configure('startOn', e.target.value as CaptureTrigger)
+            }
           >
             {triggerOptions
               .filter(([id]) => id !== 'duration' && id !== 'manual')
@@ -437,7 +525,9 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
             id="record-stop-on"
             value={config.stopOn}
             disabled={recording}
-            onChange={(e) => configure('stopOn', e.target.value as CaptureTrigger)}
+            onChange={(e) =>
+              configure('stopOn', e.target.value as CaptureTrigger)
+            }
           >
             {triggerOptions
               .filter(([id]) => id !== 'immediate')
@@ -473,9 +563,13 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
                 max={3600000}
                 step={1}
                 placeholder="0"
-                value={Number.isNaN(config.stopDelayMs) ? '' : config.stopDelayMs}
+                value={
+                  Number.isNaN(config.stopDelayMs) ? '' : config.stopDelayMs
+                }
                 disabled={recording || !status.availableTriggers}
-                onChange={(e) => configure('stopDelayMs', e.target.valueAsNumber)}
+                onChange={(e) =>
+                  configure('stopDelayMs', e.target.valueAsNumber)
+                }
               />{' '}
               ms
             </label>
@@ -489,7 +583,9 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
                 type="checkbox"
                 checked={config.maxDurationMs !== 0}
                 disabled={recording}
-                onChange={(e) => configure('maxDurationMs', e.target.checked ? 25000 : 0)}
+                onChange={(e) =>
+                  configure('maxDurationMs', e.target.checked ? 25000 : 0)
+                }
               />
               Maximum duration
             </label>
@@ -502,9 +598,15 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
                   min={1}
                   max={3600}
                   step={1}
-                  value={Number.isNaN(config.maxDurationMs) ? '' : config.maxDurationMs / 1000}
+                  value={
+                    Number.isNaN(config.maxDurationMs)
+                      ? ''
+                      : config.maxDurationMs / 1000
+                  }
                   disabled={recording}
-                  onChange={(e) => configure('maxDurationMs', e.target.valueAsNumber * 1000)}
+                  onChange={(e) =>
+                    configure('maxDurationMs', e.target.valueAsNumber * 1000)
+                  }
                 />{' '}
                 s
               </label>
@@ -512,24 +614,36 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
           </>
         )}
         {status.state === 'ready' && !status.availableTriggers && (
-          <span>Restart the local controller to enable trigger configuration.</span>
+          <span>
+            Restart the local controller to enable trigger configuration.
+          </span>
         )}
-        <span id="record-stop-description" className="record-stop-description" role="status">
+        <span
+          id="record-stop-description"
+          className="record-stop-description"
+          role="status"
+        >
           {stopDescription}{' '}
           {config.stopOn !== 'duration' &&
             (effective.maxDurationMs > 0
               ? `Maximum duration: ${effective.maxDurationMs / 1000} seconds; whichever happens first. The maximum ignores stop delay.`
               : 'No time limit is enabled.')}{' '}
-          Times start when collection begins, after the start trigger and its delay. Empty delay
-          fields mean 0 ms.
+          Times start when collection begins, after the start trigger and its
+          delay. Empty delay fields mean 0 ms.
         </span>
       </div>
       <details className="record-scope">
         <summary>
-          Capture scope · {channelOptions.filter(([bit]) => scope.channels & bit).length}/
+          Capture scope ·{' '}
+          {channelOptions.filter(([bit]) => scope.channels & bit).length}/
           {channelOptions.length} channels ·{' '}
-          {scope.selectedMods.length ? `${scope.selectedMods.length} mods` : 'all mods'} ·{' '}
-          {scope.selectedHooks.length ? `${scope.selectedHooks.length} hooks` : 'all hooks'}
+          {scope.selectedMods.length
+            ? `${scope.selectedMods.length} mods`
+            : 'all mods'}{' '}
+          ·{' '}
+          {scope.selectedHooks.length
+            ? `${scope.selectedHooks.length} hooks`
+            : 'all hooks'}
         </summary>
         <fieldset disabled={recording || busy}>
           <legend>Data channels</legend>
@@ -542,7 +656,9 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
                   onChange={(e) =>
                     selectScope({
                       ...scope,
-                      channels: e.target.checked ? scope.channels | bit : scope.channels & ~bit,
+                      channels: e.target.checked
+                        ? scope.channels | bit
+                        : scope.channels & ~bit,
                     })
                   }
                 />
@@ -552,16 +668,20 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
           </div>
         </fieldset>
         <p>
-          Timeline and Lua errors require callback timings. FPS/UPS and start/stop triggers work
-          independently. Screenshots use their separate switch above.
+          Timeline and Lua errors require callback timings. FPS/UPS and
+          start/stop triggers work independently. Screenshots use their separate
+          switch above.
         </p>
-        <section className="scope-selection" aria-labelledby="scope-selection-title">
+        <section
+          className="scope-selection"
+          aria-labelledby="scope-selection-title"
+        >
           <div className="scope-catalog-bar">
             <div>
               <h2 id="scope-selection-title">Which callbacks to record</h2>
               <p>
-                Leave both filters empty to record all mods and hooks. Selecting names narrows the
-                recording.
+                Leave both filters empty to record all mods and hooks. Selecting
+                names narrows the recording.
               </p>
             </div>
             <button
@@ -585,7 +705,9 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
             aria-live="polite"
             aria-busy={catalogLoading}
           >
-            {catalogLoading && <span className="scope-loading-dot" aria-hidden="true" />}
+            {catalogLoading && (
+              <span className="scope-loading-dot" aria-hidden="true" />
+            )}
             {catalogMessage}
           </p>
           {scopeError && canReadCatalog && (
@@ -595,8 +717,9 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
           )}
           <div className="scope-filters">
             {(['selectedMods', 'selectedHooks'] as const).map((key) => {
-              const label = key === 'selectedMods' ? 'Mods' : 'Hooks',
-                names = key === 'selectedMods' ? catalog.mods : catalog.hooks;
+              const label = key === 'selectedMods' ? 'Mods' : 'Hooks';
+              const names =
+                key === 'selectedMods' ? catalog.mods : catalog.hooks;
               const placeholder = recording
                 ? 'Stop recording to choose'
                 : !canReadCatalog
@@ -609,7 +732,11 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
                         ? 'No registered names found'
                         : `Add a ${key === 'selectedMods' ? 'mod' : 'hook'} (${names.length} available)`;
               return (
-                <section className="scope-filter" key={key} aria-labelledby={`scope-${key}-title`}>
+                <section
+                  className="scope-filter"
+                  key={key}
+                  aria-labelledby={`scope-${key}-title`}
+                >
                   <div className="scope-filter-heading">
                     <h3 id={`scope-${key}-title`}>{label}</h3>
                     <span>
@@ -618,7 +745,9 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
                         : `All ${label.toLowerCase()}`}
                     </span>
                   </div>
-                  <label htmlFor={`scope-${key}-picker`}>Add from connected game</label>
+                  <label htmlFor={`scope-${key}-picker`}>
+                    Add from connected game
+                  </label>
                   <select
                     id={`scope-${key}-picker`}
                     aria-label={
@@ -628,15 +757,20 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
                     }
                     aria-describedby="scope-catalog-status"
                     disabled={
-                      recording || busy || !canReadCatalog || catalogLoading || !names.length
+                      recording ||
+                      busy ||
+                      !canReadCatalog ||
+                      catalogLoading ||
+                      !names.length
                     }
                     value=""
                     onChange={(e) => {
-                      if (e.target.value)
+                      if (e.target.value) {
                         selectScope({
                           ...scope,
                           [key]: [...new Set([...scope[key], e.target.value])],
                         });
+                      }
                     }}
                   >
                     <option value="">{placeholder}</option>
@@ -647,7 +781,8 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
                     ))}
                   </select>
                   <label htmlFor={`scope-${key}-names`}>
-                    Selected names <span>(one exact name per line; editable)</span>
+                    Selected names{' '}
+                    <span>(one exact name per line; editable)</span>
                   </label>
                   <textarea
                     id={`scope-${key}-names`}
@@ -657,14 +792,22 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
                     disabled={recording || busy}
                     value={drafts[key]}
                     onChange={(e) =>
-                      setDrafts((previous) => ({ ...previous, [key]: e.target.value }))
+                      setDrafts((previous) => ({
+                        ...previous,
+                        [key]: e.target.value,
+                      }))
                     }
                     onBlur={() =>
-                      selectScope({ ...scope, [key]: drafts[key].split('\n').filter(Boolean) })
+                      selectScope({
+                        ...scope,
+                        [key]: drafts[key].split('\n').filter(Boolean),
+                      })
                     }
                   />
                   <div className="scope-filter-footer">
-                    <span id={`scope-${key}-help`}>Empty means all {label.toLowerCase()}.</span>
+                    <span id={`scope-${key}-help`}>
+                      Empty means all {label.toLowerCase()}.
+                    </span>
                     <button
                       className="scope-action"
                       disabled={recording || busy || !drafts[key]}
@@ -679,8 +822,9 @@ export default function RecordingControls({ onStatus }: { onStatus: (status: Sta
           </div>
         </section>
         <p>
-          Mod and hook filters intersect. Unmeasured child calls remain in the self time of a
-          measured parent. Capture settings are stored in the recording.
+          Mod and hook filters intersect. Unmeasured child calls remain in the
+          self time of a measured parent. Capture settings are stored in the
+          recording.
         </p>
       </details>
     </>

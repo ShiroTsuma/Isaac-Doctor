@@ -8,7 +8,14 @@
 namespace ip {
 constexpr std::uint32_t streamVersion = 3, chunkMagic = 0x4b4e4843;
 constexpr std::uint32_t packetBytes = 2 * 1024 * 1024, packetSlots = 4;
-enum ChunkType : std::uint16_t { metadataChunk = 1, eventsChunk = 2, screenshotChunk = 3, lossChunk = 4, indexChunk = 5, previewChunk = 6, frameChunk = 7, countersChunk = 8, heapChunk = 9, markersChunk = 10, inventoryChunk = 11, contextChunk = 12, overheadChunk = 13, errorChunk = 14, configurationChunk = 15 };
+enum ChunkType : std::uint16_t { metadataChunk = 1, eventsChunk = 2, screenshotChunk = 3, lossChunk = 4, indexChunk = 5, previewChunk = 6, frameChunk = 7, countersChunk = 8, heapChunk = 9, markersChunk = 10, inventoryChunk = 11, contextChunk = 12, overheadChunk = 13, errorChunk = 14, configurationChunk = 15, presentationChunk = 16 };
+// QPC ticks for wall spans; raw thread CPU cycles are never converted to time.
+// Interval runs from the previous SwapBuffers return to this one's return.
+struct StreamPresentation {
+    std::uint64_t start, duration, id, swapStart, swapDuration, readbackStart, readbackDuration, cycles, swapCycles;
+    std::uint32_t thread, flags;
+};
+static_assert(sizeof(StreamPresentation) == 80);
 struct StreamContext {
     std::uint64_t timestamp;
     std::int32_t room, stage, stageType, roomType;
