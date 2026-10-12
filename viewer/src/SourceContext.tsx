@@ -14,7 +14,9 @@ export default function SourceContext({
   metric,
   request,
   capture,
+  idPrefix = '',
 }: {
+  idPrefix?: string;
   metric?: Metric;
   request: WorkerClient['request'];
   capture?: LoadedTrace;
@@ -160,7 +162,7 @@ export default function SourceContext({
         <span className="toolbar-fill" />
         <button
           className="small-button"
-          id="connect-sources"
+          id={`${idPrefix}connect-sources`}
           onClick={() => {
             if (input.current) {
               input.current.value = '';
@@ -187,7 +189,7 @@ export default function SourceContext({
         )}
       </div>
       <input
-        id="source-folder-input"
+        id={`${idPrefix}source-folder-input`}
         ref={input}
         type="file"
         multiple

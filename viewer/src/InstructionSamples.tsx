@@ -14,9 +14,11 @@ type Sort = keyof InstructionGroup;
 function SampleTable({
   rows,
   waitCoverage,
+  presentationCoverage,
   id,
 }: {
   rows: InstructionGroup[];
+  presentationCoverage: boolean;
   waitCoverage: boolean;
   id: string;
 }) {
@@ -31,6 +33,7 @@ function SampleTable({
             ['thread', 'Thread'],
             ['count', 'Snapshots'],
             ['coveredWait', 'Inside covered waits'],
+            ['insideSwap', 'Inside SwapBuffers'],
           ] as [Sort, string][]
         ).map(([key, label]) => ({ key, label }))}
         sort={sort}
@@ -61,6 +64,9 @@ function SampleTable({
               <td>{row.thread}</td>
               <td>{count(row.count)}</td>
               <td>{waitCoverage ? count(row.coveredWait) : 'Not recorded'}</td>
+              <td>
+                {presentationCoverage ? count(row.insideSwap) : 'Not recorded'}
+              </td>
             </tr>
           ))}
       </tbody>
@@ -196,6 +202,18 @@ export default function InstructionSamples({
               ? 'Not recorded'
               : count(result.outsideCoveredWait),
           ],
+          [
+            'Inside SwapBuffers',
+            result.insideSwap === null
+              ? 'Not recorded'
+              : count(result.insideSwap),
+          ],
+          [
+            'Outside swap / covered waits',
+            result.outsideSwapAndCoveredWait === null
+              ? 'Not recorded'
+              : count(result.outsideSwapAndCoveredWait),
+          ],
           ['Readback / resume pause in range', ms(result.pauseTotal)],
           ['Maximum recorded pause', ms(result.pauseMaximum)],
         ].map(([label, value]) => (
@@ -253,6 +271,7 @@ export default function InstructionSamples({
               </details>
               {selected?.data === data && (
                 <SourceContext
+                  idPrefix="sample-lua-"
                   metric={selected.metric}
                   request={request}
                   capture={data}
@@ -262,12 +281,14 @@ export default function InstructionSamples({
           )}
           <h4>Modules</h4>
           <SampleTable
+            presentationCoverage={result.presentationCoverage}
             rows={result.modules}
             waitCoverage={result.waitCoverage}
             id="sample-modules-table"
           />
           <h4>Instruction locations · 64-byte buckets</h4>
           <SampleTable
+            presentationCoverage={result.presentationCoverage}
             rows={result.hotspots}
             waitCoverage={result.waitCoverage}
             id="sample-hotspots-table"
@@ -277,6 +298,7 @@ export default function InstructionSamples({
               Frame-pointer return candidates · partial, not a full call stack
             </summary>
             <SampleTable
+              presentationCoverage={result.presentationCoverage}
               rows={result.returns}
               waitCoverage={result.waitCoverage}
               id="sample-returns-table"

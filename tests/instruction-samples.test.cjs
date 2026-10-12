@@ -58,3 +58,17 @@ test('Lua source attribution joins matching thread/time and handles unresolved o
   assert.ok(result.luaSources.every(x=>x.source==='@actual.lua' && x.line===42 && x.count===1));
   assert.ok(result.luaSources.some(x=>x.mod==='Unwrapped Lua'));
 });
+
+test('swap classification joins exact thread and clips query-window overlap without assuming GPU time', async () => {
+  const stream=capture([row(248),row(250),row(256),row(250,'0x1010',8)]);
+  stream.blocks=[{type:16}];
+  stream.presentations=async function* () { yield {thread:7,swapStart:248,swap:8}; };
+  const result=await instructionCapture(stream,0,600);
+  assert.equal(result.insideSwap,2);
+  assert.equal(result.coveredWait,1);
+  assert.equal(result.outsideSwapAndCoveredWait,2);
+  assert.equal(result.modules.find(x=>x.thread===7).insideSwap,2);
+  const noCoverage=await instructionCapture(capture([row(10)]),0,600);
+  assert.equal(noCoverage.insideSwap,null);
+  assert.equal(noCoverage.outsideSwapAndCoveredWait,null);
+});

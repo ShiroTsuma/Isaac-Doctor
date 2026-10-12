@@ -6,6 +6,7 @@ export interface InstructionGroup {
   thread: number;
   count: number;
   coveredWait: number;
+  insideSwap: number;
 }
 
 export async function instructionCapture(
@@ -32,6 +33,9 @@ export async function instructionCapture(
   const waitCoverage =
     !!((stream.document.configuration?.channels ?? 0) & 4096) ||
     stream.blocks.some((b) => b.type === 17);
+  const presentationCoverage =
+    !!((stream.document.configuration?.channels ?? 0) & 2048) ||
+    stream.blocks.some((b) => b.type === 16);
   const modules = available ? await stream.nativeModules() : [];
   const luaAvailable = stream.blocks.some((b) => b.type === 22);
   const luaOwners = new Map<
@@ -89,6 +93,7 @@ export async function instructionCapture(
     location: string,
     thread: number,
     waiting: boolean,
+    swapping: boolean,
   ) {
     const key = `${thread}:${location}`;
     const row = groups.get(key) ?? {
@@ -96,15 +101,19 @@ export async function instructionCapture(
       thread,
       count: 0,
       coveredWait: 0,
+      insideSwap: 0,
     };
     row.count++;
     row.coveredWait += Number(waiting);
+    row.insideSwap += Number(swapping);
     groups.set(key, row);
     if (groups.size > 20000) {
       throw Error('More than 20,000 sample locations; narrow the range.');
     }
   }
 
+  let insideSwap = 0;
+  let outsideSwapAndCoveredWait = 0;
   let count = 0;
   let coveredWait = 0;
   let pauseTotal = 0;
@@ -112,6 +121,21 @@ export async function instructionCapture(
   if (available) {
     for (let from = start; from < end; from += 250) {
       const to = Math.min(end, from + 250);
+      const swaps: { thread: number; start: number; end: number }[] = [];
+      if (presentationCoverage) {
+        for await (const frame of stream.presentations(from, to)) {
+          swaps.push({
+            thread: frame.thread,
+            start: frame.swapStart,
+            end: frame.swapStart + frame.swap,
+          });
+          if (swaps.length > 10000) {
+            throw Error(
+              'Too many presentation intervals in a sample window; narrow the range.',
+            );
+          }
+        }
+      }
       const waits: NativeWait[] = [];
       const contexts = new Map<
         string,
@@ -149,6 +173,14 @@ export async function instructionCapture(
             w.start <= sample.time &&
             sample.time < w.start + w.duration,
         );
+        const swapping = swaps.some(
+          (s) =>
+            s.thread === sample.thread &&
+            sample.time >= s.start &&
+            sample.time < s.end,
+        );
+        insideSwap += Number(swapping);
+        outsideSwapAndCoveredWait += Number(!swapping && !waiting);
         count++;
         const context = contexts.get(`${sample.thread}:${sample.time}`);
         if (context) {
@@ -210,10 +242,23 @@ export async function instructionCapture(
           module?.path.split(/[/\\]/).at(-1) ?? 'Unresolved module',
           sample.thread,
           waiting,
+          swapping,
         );
-        add(hotspots, locate(sample.address, true), sample.thread, waiting);
+        add(
+          hotspots,
+          locate(sample.address, true),
+          sample.thread,
+          waiting,
+          swapping,
+        );
         for (const candidate of new Set(sample.returns)) {
-          add(returns, locate(candidate, false), sample.thread, waiting);
+          add(
+            returns,
+            locate(candidate, false),
+            sample.thread,
+            waiting,
+            swapping,
+          );
         }
       }
     }
@@ -228,6 +273,10 @@ export async function instructionCapture(
       )
       .slice(0, limit);
   return {
+    presentationCoverage,
+    insideSwap: presentationCoverage ? insideSwap : null,
+    outsideSwapAndCoveredWait:
+      presentationCoverage && waitCoverage ? outsideSwapAndCoveredWait : null,
     luaSourceFailures,
     luaMissingSources,
     luaSources: [...luaSources.values()]
@@ -255,6 +304,6 @@ export async function instructionCapture(
     returns: ranked(returns),
     sessionStats: available ? await stream.samplingStats() : null,
     limitation:
-      'Discrete wall-time instruction snapshots on registered Lua/render threads, including sleeping threads; counts are not CPU time or GPU time. Locations use 64-byte buckets. Covered waits include only the six instrumented APIs. Up to four frame-pointer return candidates are partial and may be absent or inaccurate when frame pointers are omitted. Lua owners identify the innermost existing profiler wrapper on the main Lua state; Lua source snapshots identify the nearest main-state Lua function definition, not its currently executing line. Owner source lines identify wrapper definitions. Unwrapped work and coroutine interiors can remain unattributed. Sampling briefly suspends threads. Measured pause covers context readback through resume, including Lua context reads; it excludes entering SuspendThread and other profiler work.',
+      'Discrete wall-time instruction snapshots on registered Lua/render threads, including sleeping threads; counts are not CPU time or GPU time. Locations use 64-byte buckets. Covered waits include only the six instrumented APIs. Inside SwapBuffers is measured wall time including driver work and synchronization, not GPU execution. Outside swap and covered waits can still include unobserved waits or scheduling. Up to four frame-pointer return candidates are partial and may be absent or inaccurate when frame pointers are omitted. Lua owners identify the innermost existing profiler wrapper on the main Lua state; Lua source snapshots identify the nearest main-state Lua function definition, not its currently executing line. Owner source lines identify wrapper definitions. Unwrapped work and coroutine interiors can remain unattributed. Sampling briefly suspends threads. Measured pause covers context readback through resume, including Lua context reads; it excludes entering SuspendThread and other profiler work.',
   };
 }
