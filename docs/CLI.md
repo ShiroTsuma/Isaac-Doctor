@@ -1,6 +1,6 @@
 # Headless analysis for developers and automation
 
-`isaacprof-cli.cmd` reads the same binary captures and uses the same TypeScript analysis implementation as the browser Worker. It needs Node with native TypeScript stripping; tested with **Node 26.4.0 x64**. Neither Vite nor Python nor an open browser is needed. The original `build/Release/isaacprof-analyze.exe` remains an aggregate-only compatibility tool; it is not this headless interface.
+`isaacprof-cli.cmd` reads the same binary captures and uses the same TypeScript analysis implementation as the browser Worker. It needs Node with native TypeScript stripping; tested with **Node 26.4.0 x64**. Neither Vite nor Python nor an open browser is needed. `build/Release/isaacprof-analyze.exe` is a separate aggregate-only native reader.
 
 From the repository root:
 
@@ -11,7 +11,7 @@ From the repository root:
 .\isaacprof-cli.cmd report "build/Release/captures/recording.isaacprof" --top 5
 ```
 
-Alternatively use `node viewer/scripts/analyze.mts ...`, or `pnpm --dir viewer analyze ...`. Paths with spaces must be quoted. Streaming v3 captures are supported; the viewer and old native analyzer continue to support legacy v1/v2.
+Alternatively use `node viewer/scripts/analyze.mts ...`, or `pnpm --dir viewer analyze ...`. Paths with spaces must be quoted. Streaming v3 captures are supported; the viewer and native reader continue to support legacy v1/v2.
 
 ## Working flow
 

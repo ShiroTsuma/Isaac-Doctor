@@ -61,13 +61,18 @@ Controlled capture tests use owned Lua host processes rather than launching Isaa
 .\build.ps1 -BuildDirectory build/stream-dev
 python tests/capture-triggers.py
 python tests/stream-smoke.py
+python tests/stageapi-smoke.py
 python tests/controller-server.py
 python tests/recording-settings.py
 python tests/recording-settings-server.py
 python tests/presentation-smoke.py
 python tests/instruction-smoke.py
-node --experimental-strip-types --test tests/diagnosis.test.cjs tests/cli.test.cjs tests/debugging.test.cjs tests/frames.test.cjs tests/worker-client.test.cjs tests/recording-files.test.cjs
+# Run all Node tests after stream-smoke.py generates their capture fixtures.
+$testFiles = Get-ChildItem tests/*.test.cjs | ForEach-Object { $_.FullName }
+node --experimental-strip-types --test --test-concurrency=3 $testFiles
 ```
+
+`stream-smoke.py` creates synthetic captures and writes their paths under `build/stream-dev/Release`. Node tests that read those fixtures require that generation step; private game recordings are not test dependencies.
 
 Browser regression scripts in `tests/` exercise graph navigation, sorting, folder refresh and recording lifecycle against the built local viewer. See [streaming format](STREAMING.md), [binary format](FORMAT.md) and [project roadmap](ROADMAP.md) for implementation details.
 

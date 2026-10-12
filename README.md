@@ -10,16 +10,18 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ShiroTsuma/Isaac-Doctor/releases"><img src="https://img.shields.io/badge/Download-Windows_x64-8ab4f8?style=flat-square" alt="Download for Windows x64"></a>
+  <a href="https://github.com/ShiroTsuma/Isaac-Doctor/releases/latest/download/IsaacDoctor-0.11.12-windows-x64.zip"><img src="https://img.shields.io/badge/Download-Windows_x64-8ab4f8?style=flat-square" alt="Download for Windows x64"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-98c379?style=flat-square" alt="MIT license"></a>
   <img src="https://img.shields.io/badge/Status-Under_development-e5c07b?style=flat-square" alt="Under development">
 </p>
 
 <p align="center">
+  <a href="https://github.com/ShiroTsuma/Isaac-Doctor/releases/latest/download/IsaacDoctor-0.11.12-windows-x64.zip"><strong>Download ZIP</strong></a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#explore-a-recording">Screenshots</a> ·
   <a href="#configure-your-capture">Capture scope</a> ·
   <a href="#a-real-fix-diepios-hud">A real fix</a> ·
+  <a href="docs/MOD-PERFORMANCE.md">Mod performance guide</a> ·
   <a href="docs/README.md">Documentation</a>
 </p>
 
@@ -38,13 +40,15 @@ Select a slow frame, expand **mod → hook → function**, and read the Lua sour
 | Changes after a fix | Compare recordings by mod, hook or callback, including cost per call and call rate |
 | Large traces | Binary streaming, indexed range reads, Web Workers and reusable analysis in the original file |
 
+**Writing a mod?** Read [Finding and fixing slow mod callbacks](docs/MOD-PERFORMANCE.md) for common mistakes, Lua examples and a step-by-step UI investigation.
+
 StageAPI's custom callbacks are measured under their owning mod and `StageAPI:HOOK_NAME`. Expanding the parent callback reveals these nested calls, so a costly StageAPI dispatch can be traced to the mod function it invokes. Existing callbacks and later registrations are covered; the mods-loaded notification also handles StageAPI loading after attachment.
 
 ## Quick start
 
 **Requires:** Windows x64, Repentance+ with [REPENTOGON](https://github.com/TeamREPENTOGON/REPENTOGON), and Chrome or Edge. The portable package includes the runtime and native tools.
 
-1. Open [**Releases**](https://github.com/ShiroTsuma/Isaac-Doctor/releases) and download `IsaacDoctor-VERSION-windows-x64.zip` when an asset is available.
+1. [**Download the Windows x64 ZIP**](https://github.com/ShiroTsuma/Isaac-Doctor/releases/latest/download/IsaacDoctor-0.11.12-windows-x64.zip). You can also browse [Releases](https://github.com/ShiroTsuma/Isaac-Doctor/releases/latest) for the checksum and release notes.
 2. **Extract the entire ZIP** to a writable folder and double-click **IsaacDoctor.exe**. Keep its launcher window open; the profiler opens in your browser.
 3. Start Isaac through **REPENTOGONLauncher**, using your usual Steam launch configuration, then click **Connect game**.
 4. Choose **Connect captures folder** and select the extracted package's `bin/captures` folder. This lets the viewer refresh and open completed recordings automatically.
@@ -70,13 +74,13 @@ Closing the browser tab alone leaves the controller running. The game stays open
 
 ## Explore a recording
 
+Use **Ctrl+K** or the top search bar to jump to a view, mod, hook or source. Search `SwapBuffers` for presentation diagnostics; prefix a query with `>` for commands, `@` for mods/hooks, or `/` for recordings/sources.
+
 ### Pick a slow frame
 
 Open **Frames**, choose Render or Update, and sort by wall time. Inspect the retained callback breakdown or select the costliest callback. For a selection shorter than one complete interval, use **Show enclosing frame**.
 
 If a slow interval has little extra Lua work, choose **Frames → Presentation**. The independent **Presentation / SwapBuffers** capture channel measures time between swap returns, time inside `SwapBuffers`, and screenshot-hook cost. Add a presentation timing graph to compare spikes across the same range. These measurements help separate callback costs from delays elsewhere; they do not identify a GPU bottleneck or measure time on the display.
-
-Use the search bar at the top (**Ctrl+K**) to jump to views and run application commands. Search `swap buffers` to open **Frames / Presentation**, or `FPS` to switch the first graph. Search a mod or hook to filter Bottom-up, or a source filename to inspect its local code. Prefix `>` for commands, `/` for known recordings and source files, and `@` for mods and hooks. Results come from the current session and local recording selection; choosing a command runs it, typing alone does not.
 
 For unresolved native work, enable **Native instruction samples** for a short diagnostic recording. This channel is **off by default** because it briefly pauses the observed threads. **Frames → Presentation** shows module/RVA hotspots, snapshots inside covered waits and SwapBuffers, partial frame-pointer return candidates, and measured readback/resume pause cost. Snapshot counts include sleeping threads; they are not CPU or GPU percentages. Where the Lua memory layout passes runtime validation, the same view also attributes snapshots to existing wrapper owners and nearby Lua function definitions. Click a sampled source to open folded local source context, including when callback timings are disabled. Definition lines are not the currently executing line. The CLI exposes the same data with `samples CAPTURE.isaacprof --non-interactive`.
 
@@ -151,7 +155,7 @@ With the game already running through its launcher:
 Source builds save recordings in `build/Release/captures`; portable releases use `bin/captures`. Filenames include the UTC request/arming time; an event trigger can begin collecting later.
 
 ```text
-capture-2026-10-11_19-12-48-713Z-pid36824-26943828.isaacprof
+capture-YYYY-MM-DD_HH-MM-SS-mmmZ-pidPID-ID.isaacprof
 ```
 
 </details>
@@ -173,7 +177,7 @@ The HUD paths recreated fonts and repeated asset loading during renders. We cach
 
 These callbacks used about **94% less measured self time**. The captures came from different runs, so this is an observed function-level improvement rather than a controlled FPS benchmark. Whole-session mean FPS remained near 58; other callbacks and engine work still matter.
 
-To try this workflow on your mod, connect its local folder when opening **Source context**, compare the recorded hashes against your files, and make another capture after the change.
+Try the same workflow on your mod: connect its source folder, inspect the callback, then record again after the change. The [mod performance guide](docs/MOD-PERFORMANCE.md) covers resource caching, early guards, room scans, allocation pressure and how to verify a fix.
 
 ## Headless analysis
 
@@ -213,17 +217,18 @@ If you share a recording, inspect its file paths, mod names, error stacks and sc
 
 | Guide | Contents |
 | --- | --- |
+| [Mod performance guide](docs/MOD-PERFORMANCE.md) | Common slow paths, Lua examples, UI investigation and before/after checks |
 | [Building and testing](docs/BUILDING.md) | Source setup, development server, checks and portable release packaging |
 | [CLI reference](docs/CLI.md) | Commands, structured output, automation and investigation examples |
 | [Function scopes](docs/FUNCTION-SCOPES.md) | Optional native measurements of helpers inside mod callbacks |
+| [Architecture](docs/ARCHITECTURE.md) | Native instrumentation, collector, controller and viewer |
+| [Streaming format](docs/STREAMING.md) | Binary blocks, index, integrity and prepared analysis |
+| [Roadmap](docs/ROADMAP.md) | Planned work and measurement gaps |
 
 Callback profiling works without modifying your mods. Authors can optionally
 register [internal function scopes](docs/FUNCTION-SCOPES.md) to distinguish input,
 layout, persistence and other work inside a callback. These deeper measurements
 are opt-in; automatic discovery of internal functions is not currently available.
-| [Architecture](docs/ARCHITECTURE.md) | Native instrumentation, collector, controller and viewer |
-| [Streaming format](docs/STREAMING.md) | Binary blocks, index, integrity and prepared analysis |
-| [Roadmap](docs/ROADMAP.md) | Implemented features and planned work |
 
 The project is under active development. Compatibility testing, matched A/B captures and deeper engine/GC attribution remain areas for improvement. When reporting a problem in [Issues](https://github.com/ShiroTsuma/Isaac-Doctor/issues), include the release version, game/REPENTOGON versions, selected capture scope and steps to reproduce it.
 

@@ -24,7 +24,7 @@ The DLL publishes without waiting for disk to a bounded shared-memory ring. The 
 
 Viewer: File.slice() in separate timeline and analysis Workers, a 64 MiB LRU payload cache per Worker (at most 2 MiB per entry), index/chunk validation limit 64 MiB, previews for wide timeline ranges, exact retained raw calls for rankings. Frame summaries use 32,768 histogram bins, return at most 500 slowest intervals and cap breakdowns at 200,000 metric entries. Their percentile upper bounds have at most 0.1% relative error for representable positive QPC intervals.
 
-See [legacy metadata layout](FORMAT.md) and [measurement interpretation / milestones](ROADMAP.md).
+See [embedded metadata layout](FORMAT.md) and [architecture](ARCHITECTURE.md).
 
 ## Prepared analysis appendix, versions 1 and 2
 
@@ -39,7 +39,7 @@ New recordings also carry optional raw channels (all chunk versions=1):
 
 CPU counters retain cumulative OS values in 100 ns units, not percentages. CPU 100% in the viewer means one logical core. Invalid counters are indicated by the validity mask; counter resets and thread identity changes break delta calculations. The control worker samples OS counters every 250 ms. Lua heap is read on the Lua thread at most every 250 ms via LUA_GCCOUNT/GCCOUNTB, without forcing GC. Missing main-thread observations leave sample gaps. Heap is VM-wide, not attributed to mods.
 
-Profiler 0.9.0 adds optional chunk types (outer capture format remains v3):
+Additional diagnostic chunks use the same v3 container:
 
 | Type | Layout |
 |---|---|
@@ -47,7 +47,7 @@ Profiler 0.9.0 adds optional chunk types (outer capture format remains v3):
 | 13 instrumentation counters | 64 bytes: u64 ticks/entered calls/sampled wrappers/wrapper overhead ticks/observer ticks/auxiliary dropped/context failures/errors omitted |
 | 14 Lua error | u64 ticks; u32 metric/thread; u64 span; length-prefixed UTF-8 message and traceback |
 
-Context is observed on the Lua thread at most every 250 ms. Static room description is refreshed at capture/room/stage transitions; entity/grid counts are refreshed each sample. Valid context currently has mask 7. Failed protected API reads increment context failures instead of fabricating a zero population. An eight-sample controlled-host test also exercised the actual production build/Release DLL; real game behavior remains to be confirmed by a new recording.
+Context is observed on the Lua thread at most every 250 ms. Static room description is refreshed at capture/room/stage transitions; entity/grid counts are refreshed each sample. Valid context currently has mask 7. Failed protected API reads increment context failures instead of fabricating a zero population.
 
 One in 1024 entered wrappers measures entry and exit observation work around the mod call; sampled ticks exclude the mod body. The viewer estimates total wrapper cost from sample/call deltas and separately reports measured observer work. This does not measure total collector/I/O/screenshot overhead and does not replace an external A/B benchmark. Lua errors preserve the original error object and retain message/traceback with bounded lengths (4096/16384 bytes), at most 1000 per capture; truncation and queue loss are counted. Old recordings cannot reconstruct missing context or error messages from callback flags.
 

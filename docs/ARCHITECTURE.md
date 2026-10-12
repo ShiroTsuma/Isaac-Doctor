@@ -7,13 +7,14 @@ Isaac Doctor has three runtime boundaries: native instrumentation inside the x86
 - `src/profiler.cpp` instruments Lua callback closures, tracks inclusive/self time and maintains aggregate counters. `src/bootstrap.lua` integrates callback registration and lifecycle observers; callback timers run natively.
 - `src/injector.cpp` attaches to an already running game and sends commands through the shared control protocol in `src/control.hpp`. It does not start the game.
 - `src/stream.hpp` defines the bounded transport. `src/collector.cpp`, built separately through `collector/CMakeLists.txt`, writes the binary chunks and final index outside the x86 process.
-- `src/screenshots.cpp` captures and encodes filmstrip thumbnails. Process counters, room context, lifecycle markers and capture configuration use separate binary channels.
+- `src/screenshots.cpp` captures filmstrip thumbnails and measures native presentation intervals, swap spans and readback work. `src/native_waits.cpp` observes selected Sleep/object-wait APIs; `src/instruction_samples.cpp` provides optional thread snapshots and validated Lua function context.
+- Process counters, room context, lifecycle markers and capture configuration use separate binary channels. Native instruction sampling is off by default.
 
 The DLL, injector and collector must stay together. The DLL remains loaded until the game exits; replacing files does not replace an already loaded version.
 
 ## Local controller
 
-`tools/viewer-server.py` serves the built UI and accepts authenticated recording commands on loopback. The portable release bundles it with a Python runtime. `tools/release-launcher.py` provides the visible EXE window; its monitored controller stops recording and exits when that owner closes. Static UI responses bypass browser cache to avoid mixing assets between releases served at the same local URL. Source development uses `viewer/scripts/dev.mts` to manage Vite and controller lifetime. Game launch remains the user's responsibility through REPENTOGONLauncher.
+`tools/viewer-server.py` serves the built UI and accepts authenticated recording commands on loopback. The portable release bundles it with a Python runtime. `tools/release-launcher.py` provides the visible EXE window; its monitored controller stops recording and exits when that owner closes. Static UI responses bypass browser cache to avoid mixing assets between releases served at the same local URL. Source development uses `viewer/scripts/dev.mts` to manage Vite and controller lifetime. Capture preferences persist in `isaac-doctor.settings.json` beside the portable EXE; browser folder permissions remain separate. Game launch remains the user's responsibility through REPENTOGONLauncher.
 
 ## Analysis
 
@@ -21,6 +22,6 @@ The browser reads local files through file inputs or permissioned file handles. 
 
 `analysis.ts`, `frames.ts` and `diagnosis.ts` provide the shared analysis implementation. The headless CLI in `viewer/scripts/analyze.mts` uses that implementation with positioned disk reads from `capture-file.mts`. Recordings are binary; CLI JSON is query output.
 
-The React UI is rooted in `App.tsx`. `Timeline.tsx` coordinates graph panes and their shared range. `useGraphNavigation.ts` handles common navigation; `SortableHeader.tsx` supplies shared table sorting. Source context reads local Lua files without executing or uploading them.
+The React UI is rooted in `App.tsx`. `Timeline.tsx` coordinates graph panes and their shared range. `useGraphNavigation.ts` handles common navigation; `SortableHeader.tsx` supplies shared table sorting and persistent column widths. `NavigationSearch.tsx` and `navigation.ts` provide the toolbar search and commands. Source context reads local Lua files without executing or uploading them.
 
 See [streaming format](STREAMING.md), [legacy metadata format](FORMAT.md) and [CLI reference](CLI.md). Controlled test hosts and fixtures live under `tests`; generated binaries and captures belong under the ignored `build` directory.
