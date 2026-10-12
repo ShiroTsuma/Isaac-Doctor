@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import SourceContext from './SourceContext.tsx';
+import type { LoadedTrace, Metric, WorkerClient } from './types.ts';
 import SortableHeader from './SortableHeader.tsx';
 import { count, ms } from './trace.ts';
 import type {
@@ -66,7 +68,112 @@ function SampleTable({
   );
 }
 
-export default function InstructionSamples({ result }: { result: Result }) {
+type LuaRow = Result['luaSources'][number];
+
+function LuaTable({
+  rows,
+  id,
+  select,
+  waitCoverage,
+}: {
+  waitCoverage: boolean;
+  rows: LuaRow[];
+  id: string;
+  select: (row: LuaRow) => void;
+}) {
+  const [sort, setSort] = useState<keyof LuaRow>('count');
+  const [descending, setDescending] = useState(true);
+  const columns: { key: keyof LuaRow; label: string }[] = [
+    { key: 'mod', label: 'Mod / owner' },
+    { key: 'hook', label: 'Hook' },
+    { key: 'source', label: 'Function definition' },
+    { key: 'line', label: 'Line' },
+    { key: 'count', label: 'Snapshots' },
+    { key: 'coveredWait', label: 'Inside covered waits' },
+  ];
+  return (
+    <table id={id}>
+      <SortableHeader
+        columns={columns}
+        sort={sort}
+        descending={descending}
+        onSort={(next) => {
+          setDescending(
+            next === sort
+              ? !descending
+              : next === 'count' || next === 'coveredWait',
+          );
+          setSort(next);
+        }}
+      />
+      <tbody>
+        {[...rows]
+          .sort((a, b) => {
+            const x = a[sort];
+            const y = b[sort];
+            const comparison =
+              typeof x === 'string' && typeof y === 'string'
+                ? x.localeCompare(y)
+                : Number(x) - Number(y);
+            return (
+              (descending ? -comparison : comparison) ||
+              a.source.localeCompare(b.source) ||
+              a.thread - b.thread
+            );
+          })
+          .map((row) => (
+            <tr key={`${row.thread}:${row.metric}:${row.source}:${row.line}`}>
+              <td>{row.mod}</td>
+              <td>{row.hook}</td>
+              <td>
+                <button className="small-button" onClick={() => select(row)}>
+                  {row.source || 'Unknown source'}
+                </button>
+              </td>
+              <td>{row.line}</td>
+              <td>{count(row.count)}</td>
+              <td>{waitCoverage ? count(row.coveredWait) : 'Not recorded'}</td>
+            </tr>
+          ))}
+      </tbody>
+    </table>
+  );
+}
+
+export default function InstructionSamples({
+  result,
+  data,
+  request,
+}: {
+  result: Result;
+  data: LoadedTrace;
+  request: WorkerClient['request'];
+}) {
+  const [selected, setSelected] = useState<{
+    data: LoadedTrace;
+    metric: Metric;
+  } | null>(null);
+  const select = (row: LuaRow) => {
+    const owner = data.metrics.find((metric) => metric.id === row.metric);
+    const metric: Metric = {
+      ...(owner ?? {
+        id: 0,
+        calls: 0,
+        errors: 0,
+        inclusive_ns: 0,
+        exclusive_ns: 0,
+        mean_ns: 0,
+        max_ns: 0,
+        callback_id: '',
+        callback_name: row.hook,
+        function: 'Sampled Lua function',
+        mod: row.mod,
+      }),
+      source: row.source,
+      line: row.line,
+    };
+    setSelected({ data, metric });
+  };
   if (!result.available) {
     return null;
   }
@@ -111,6 +218,48 @@ export default function InstructionSamples({ result }: { result: Result }) {
         <p>No instruction snapshots in this range. Expand the selection.</p>
       ) : (
         <>
+          {result.luaAvailable && (
+            <>
+              <h4>Sampled Lua function definitions</h4>
+              <p className="frame-note">
+                {count(result.luaAttributed)} snapshots have a wrapper owner.
+                Function definitions below come from the nearest Lua frame on
+                the main state; they are not the currently executing line. Click
+                a source to inspect it. Unverified contexts:{' '}
+                {count(result.luaUnverified)}; context read failures:{' '}
+                {count(result.luaReadFailures)}; partial contexts:{' '}
+                {count(result.luaPartial)}; source read failures:{' '}
+                {count(result.luaSourceFailures)}; missing metadata:{' '}
+                {count(result.luaMissingMetrics + result.luaMissingSources)}.
+              </p>
+              {result.luaSources.length ? (
+                <LuaTable
+                  rows={result.luaSources}
+                  waitCoverage={result.waitCoverage}
+                  id="sample-lua-sources-table"
+                  select={select}
+                />
+              ) : (
+                <p>No Lua function definitions resolved in this range.</p>
+              )}
+              <details>
+                <summary>Wrapper owners</summary>
+                <LuaTable
+                  rows={result.luaOwners}
+                  waitCoverage={result.waitCoverage}
+                  id="sample-lua-owners-table"
+                  select={select}
+                />
+              </details>
+              {selected?.data === data && (
+                <SourceContext
+                  metric={selected.metric}
+                  request={request}
+                  capture={data}
+                />
+              )}
+            </>
+          )}
           <h4>Modules</h4>
           <SampleTable
             rows={result.modules}

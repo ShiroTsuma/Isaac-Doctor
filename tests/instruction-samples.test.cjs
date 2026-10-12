@@ -31,3 +31,30 @@ test('missing wait coverage remains unknown and range is start-inclusive/end-exc
   assert.equal((await instructionCapture(capture([],0),0,600)).available,false);
   for (const [start,end,limit] of [[-1,10,1],[0,601,1],[5,5,1],[0,10,0],[0,10,501]]) await assert.rejects(instructionCapture(capture([]),start,end,limit),/Invalid/);
 });
+
+test('Lua source attribution joins matching thread/time and handles unresolved or failed contexts', async () => {
+  const stream = capture([row(10), row(20), row(30), row(40), row(50)]);
+  stream.blocks = [{type:22}, {type:23}];
+  stream.metrics = new Map([[4,{id:4,mod:'Test mod',callback_name:'Render',source:'@wrapper.lua',line:8}]]);
+  stream.luaInstructionSources = async () => new Map([[1,{source:'@actual.lua',line:42}]]);
+  stream.luaInstructionContexts = async function* (start,end) {
+    yield* [
+      {time:10,thread:7,flags:1,metrics:[4],source:1},
+      {time:20,thread:8,flags:1,metrics:[4],source:1},
+      {time:30,thread:7,flags:1,metrics:[],source:1},
+      {time:40,thread:7,flags:5,metrics:[],source:0},
+      {time:50,thread:7,flags:9,metrics:[99],source:2},
+    ].filter(x=>x.time>=start && x.time<end);
+  };
+  const result=await instructionCapture(stream,0,600);
+  assert.equal(result.luaContexts,4);
+  assert.equal(result.luaAttributed,1);
+  assert.equal(result.luaReadFailures,1);
+  assert.equal(result.luaSourceFailures,1);
+  assert.equal(result.luaMissingMetrics,1);
+  assert.equal(result.luaMissingSources,1);
+  assert.equal(result.luaOwners[0].source,'@wrapper.lua');
+  assert.equal(result.luaSources.length,2);
+  assert.ok(result.luaSources.every(x=>x.source==='@actual.lua' && x.line===42 && x.count===1));
+  assert.ok(result.luaSources.some(x=>x.mod==='Unwrapped Lua'));
+});

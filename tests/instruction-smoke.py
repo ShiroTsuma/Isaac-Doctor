@@ -53,6 +53,14 @@ try:
     assert all(s['pause_ns']>=0 and s['cycles'] is not None for s in samples)
     cli=subprocess.run(['node','viewer/scripts/analyze.mts','samples',str(report),'--top','100','--non-interactive'],cwd=root,capture_output=True,text=True,check=True,timeout=30)
     result=json.loads(cli.stdout)['result']
+    contexts=doc['lua_instruction_contexts']
+    assert len(contexts)==len(samples)
+    assert all(c['flags']&1 and not c['flags']&4 for c in contexts), contexts
+    assert result['luaAvailable'] and result['luaAttributed']>5, result
+    assert any(owner['mod']=='Lua sample owner' and owner['hook']=='MC_POST_RENDER' and owner['count']>5 for owner in result['luaOwners']), result
+    assert doc['lua_instruction_sources'], 'No Lua source dictionary'
+    assert any(source['mod']=='Lua sample owner' and source['source']=='@tests/scenario.lua' and source['line']==10 and source['count']>5 for source in result['luaSources']), result
+    assert all(m['calls']==0 for m in doc['metrics']), 'Context collection enabled callback timings'
     assert result['count']==len(samples) and result['available'] and result['waitCoverage']
     assert result['coveredWait']>5 and result['outsideCoveredWait']>5, result
     assert any('isaacprof-test-host.exe' in r['location'] for r in result['returns']), 'No caller candidates resolved'

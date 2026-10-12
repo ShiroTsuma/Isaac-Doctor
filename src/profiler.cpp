@@ -30,6 +30,7 @@ std::atomic<DWORD> luaThread{0};
 std::atomic<bool> active{false};
 std::atomic<LONG> channels{ip::defaultChannels};
 std::set<std::string> selectedMods, selectedHooks;
+std::set<unsigned> sampledMetricIds; // Recorder-worker ownership only.
 bool enabled(ip::Channel channel) { return (channels.load(std::memory_order_relaxed) & channel) != 0; }
 std::set<std::string> readScope(const char* value, size_t capacity) {
     const auto length = strnlen_s(value, capacity);
@@ -186,6 +187,7 @@ int wrapCallback(lua_State* L) {
         if (api.lua_getinfo(L, ">S", &debug)) {
             metric.source = debug.source ? std::string(debug.source, debug.srclen) : "";
             metric.line = debug.linedefined;
+            ip::validateLuaSourceLayout(api.lua_topointer(L, 4), debug.source, debug.srclen, debug.linedefined, debug.lastlinedefined);
         }
         lua_Integer id = 0;
         {
@@ -204,6 +206,7 @@ int wrapCallback(lua_State* L) {
         api.lua_pushvalue(L, 4);
         api.lua_pushinteger(L, id);
         api.lua_pushcclosure(L, nativeCallback, 2);
+        ip::validateLuaInstructionLayout(L, api.lua_topointer(L, -1), reinterpret_cast<const void*>(nativeCallback), static_cast<unsigned>(id), api.lua_gettop(L));
         return 1;
     } catch (...) { ++dropped; api.lua_pushvalue(L, 4); return 1; }
 }
@@ -515,6 +518,7 @@ void install(lua_State* L) {
         if (result == LUA_OK) result = originalPcall(L, 0, 1, 0, 0, nullptr);
         if (result == LUA_OK && api.lua_toboolean(L, -1)) {
             mainState.store(L);
+            ip::setLuaInstructionState(L);
             luaThread.store(GetCurrentThreadId());
             ip::observeWaitThread(GetCurrentThreadId(), false);
             log("Callback instrumentation installed on Lua thread " + std::to_string(GetCurrentThreadId()));
@@ -541,6 +545,7 @@ void hookedCall(lua_State* L, int nargs, int nresults, lua_KContext ctx, lua_KFu
 void hookedClose(lua_State* L) {
     if (mainState.load() == L) {
         mainState.store(nullptr);
+        ip::setLuaInstructionState(nullptr);
         active.store(false);
         pendingStart.store(false);
         lifecycleAvailable.store(false);
@@ -595,7 +600,11 @@ void sampleCounters() {
     const auto waits = ip::drainWaits(waitsOmitted);
     ip::StreamSamplingStats sampling{};
     const auto instructions = ip::drainInstructionSamples(sampling);
+    const auto luaInstructions = ip::drainLuaInstructionSamples();
+    for (const auto& definition : ip::drainLuaInstructionSources()) sendPacket(ip::luaInstructionSourceChunk, definition);
+    for (const auto& context : luaInstructions) for (unsigned i = 0; i < context.depth; ++i) sampledMetricIds.insert(context.metrics[i]);
     if (!instructions.empty()) sendPacket(ip::instructionChunk, std::string(reinterpret_cast<const char*>(instructions.data()), instructions.size() * sizeof(ip::StreamInstruction)));
+    if (!luaInstructions.empty()) sendPacket(ip::luaInstructionChunk, std::string(reinterpret_cast<const char*>(luaInstructions.data()), luaInstructions.size() * sizeof(ip::StreamLuaInstruction)));
     if (channels.load() & ip::instructions) sendPacket(ip::samplingStatsChunk, std::string(reinterpret_cast<const char*>(&sampling), sizeof(sampling)));
     auxiliaryDropped += waitsOmitted;
     if (!waits.empty()) sendPacket(ip::waitChunk, std::string(
@@ -687,7 +696,7 @@ void snapshot(bool complete) {
     std::vector<std::pair<size_t, Metric>> savedMetrics;
     {
         std::lock_guard lock(metricsMutex);
-        for (size_t i = 0; i < metrics.size(); ++i) if (metrics[i].calls.load()) savedMetrics.emplace_back(i, metrics[i]);
+        for (size_t i = 0; i < metrics.size(); ++i) if (metrics[i].calls.load() || sampledMetricIds.contains(static_cast<unsigned>(i + 1))) savedMetrics.emplace_back(i, metrics[i]);
     }
     wchar_t exe[32768]{}; GetModuleFileNameW(nullptr, exe, 32768);
     std::ostringstream out(std::ios::binary); ip::Writer writer{out};
@@ -699,7 +708,7 @@ void snapshot(bool complete) {
     writer.put<std::uint32_t>(registeredCount.load()); writer.put<std::uint32_t>(savedMetrics.size());
     writer.put<std::uint32_t>(0); writer.put<std::uint32_t>(stream->capacity);
     writer.put<std::uint64_t>(dropped.load()); writer.put<std::uint64_t>(skippedCoroutines.load()); writer.put<std::uint64_t>(hostCalls.load());
-    writer.put<std::uint64_t>(traceDropped.load()); writer.put<std::uint64_t>(traceFiltered.load()); writer.put(ns(minimumTicks)); writer.string("0.11.9");
+    writer.put<std::uint64_t>(traceDropped.load()); writer.put<std::uint64_t>(traceFiltered.load()); writer.put(ns(minimumTicks)); writer.string("0.11.10");
     const auto exeUtf8 = std::filesystem::path(exe).u8string();
     writer.string(std::string(reinterpret_cast<const char*>(exeUtf8.data()), exeUtf8.size())); writer.string(luaModulePath);
     for (const auto& [id, m] : savedMetrics) {
@@ -812,6 +821,7 @@ DWORD WINAPI worker(void*) {
                         ip::configurePresentation((mask & ip::presentation)!=0);
                         ip::configureWaits((mask & ip::waits)!=0);
                         ip::configureInstructionSamples((mask & ip::instructions)!=0);
+                        sampledMetricIds.clear();
                         {
                             std::lock_guard lock(metricsMutex);
                             channels = mask; selectedMods = mods; selectedHooks = hooks;

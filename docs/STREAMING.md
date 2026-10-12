@@ -125,3 +125,14 @@ Snapshots include sleeping threads and represent discrete wall-time occupancy, n
 ## Sampling counters (type 21, chunk version 1)
 
 One record is eight u64 values: recording-relative last successful snapshot timestamp, cumulative attempts, successes, failures, already-suspended skips, buffer omissions, total measured pause ticks and maximum measured pause ticks. These counters are session-wide; the viewer separately sums retained snapshot pauses in the selected range. Measured pause starts after SuspendThread returns and ends after ResumeThread returns. It excludes entering SuspendThread, module lookup, streaming, and all other profiler work; it is not a total overhead estimate. Counts and measured pause also include unsuccessful readbacks. Successes include omitted records. Both record types remain optional and do not alter existing chunk layouts.
+
+
+## Lua instruction contexts (type 22, chunk version 1)
+
+Each indexed 40-byte record contains u64 QPC timestamp, u32 thread, flags, wrapper depth, source ID, and four u32 wrapper metric IDs (innermost first). Flags: 1 validated internal main-state/CallInfo/CClosure layout, 2 bounded partial traversal or source dictionary budget reached, 4 context read failed, 8 source read failed. Unverified or failed contexts have zero depth and source ID. Depth is at most four; traversal is capped at 32 CallInfo nodes. Zero source ID means no resolved Lua source; it does not prove no Lua work. This optional channel accompanies instruction sampling and never enables callback timers.
+
+Pinned internal layouts are cross-checked on the Lua thread against public API values, known wrapper closure/upvalues, and original function source/definition lines. If validation fails, the sampler retains native instruction snapshots without guessing a Lua owner. The worker reads POD snapshots with kernel memory APIs while the main-state thread is paused; no Lua API, allocation, logging or locking runs while it is paused. Serialization and dictionary lookup happen after resume. Only the main Lua state is traversed; unwrapped work and coroutine interiors may remain unattributed. Sampled owner metrics appear in the final metadata even when their timed call count is zero. Counts describe discrete occupancy, not CPU or GPU time.
+
+## Lua sampled source dictionary (type 23, chunk version 1)
+
+One record contains u32 source ID (1..5000), i32 nonnegative function definition line, u32 source byte length (1..1023), followed by UTF-8 source bytes. A zero time index denotes metadata. IDs are unique within the capture and reset on each recording. Sources identify the nearest readable main-state Lua function definition, not an instruction line; wrapper metadata can identify a different library file. Readers join context and instruction snapshots by exact thread/timestamp and do not infer ownership from neighboring samples. Missing source/owner metadata is explicitly counted for incomplete captures.

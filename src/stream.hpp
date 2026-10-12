@@ -24,6 +24,14 @@ static_assert(sizeof(StreamWait) == 40);
 constexpr unsigned waitChunk = 17, renderStateChunk = 18;
 constexpr unsigned nativeModuleChunk = 19;
 constexpr unsigned instructionChunk = 20, samplingStatsChunk = 21;
+constexpr unsigned luaInstructionChunk = 22;
+constexpr unsigned luaInstructionSourceChunk = 23;
+struct StreamLuaInstruction {
+    std::uint64_t timestamp;
+    std::uint32_t thread, flags, depth, source;
+    std::uint32_t metrics[4];
+};
+static_assert(sizeof(StreamLuaInstruction) == 40);
 struct StreamInstruction {
     std::uint64_t timestamp, address, cycles, pause;
     std::uint32_t thread, flags;

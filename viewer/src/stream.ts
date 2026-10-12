@@ -98,6 +98,7 @@ export class StreamCapture {
   presentationIndex = new TimeIndex<Block>([]);
   waitIndex = new TimeIndex<Block>([]);
   instructionIndex = new TimeIndex<Block>([]);
+  luaInstructionIndex = new TimeIndex<Block>([]);
   cancelled = () => false;
   onProgress: (progress: ProcessingProgress) => void = () => {};
   private progress(stage: string, total: number) {
@@ -596,7 +597,7 @@ export class StreamCapture {
     let maximum = 0;
     for (let i = 0; i < this.blocks.length; i++) {
       const b = this.blocks[i];
-      if (b.type <= 21 && b.version !== 1) {
+      if (b.type <= 23 && b.version !== 1) {
         throw Error('Unsupported required block version.');
       }
       if (
@@ -625,6 +626,12 @@ export class StreamCapture {
       }
       if (b.type === 21 && (b.bytes !== 64 || b.count !== 1)) {
         throw Error('Invalid sampling statistics chunk.');
+      }
+      if (
+        b.type === 22 &&
+        (b.bytes !== b.count * 40 || !b.count || b.count > 1024)
+      ) {
+        throw Error('Invalid Lua instruction context chunk.');
       }
       if (
         (b.type === 12 || b.type === 13) &&
@@ -791,6 +798,9 @@ export class StreamCapture {
     this.waitIndex = new TimeIndex(this.blocks.filter((b) => b.type === 17));
     this.instructionIndex = new TimeIndex(
       this.blocks.filter((b) => b.type === 20),
+    );
+    this.luaInstructionIndex = new TimeIndex(
+      this.blocks.filter((b) => b.type === 22),
     );
     this.document.duration_ns = this.duration * 1e6;
     this.captureKey = `${header.getUint32(16, true)}:${header.getBigUint64(32, true)}:${this.sourceSize}:${this.indexCRC}`;
@@ -1181,6 +1191,83 @@ export class StreamCapture {
           }
         }
       }
+    }
+  }
+
+  async luaInstructionSources() {
+    const sources = new Map<number, { source: string; line: number }>();
+    for (const block of this.blocks.filter((b) => b.type === 23)) {
+      if (this.cancelled()) {
+        throw new Superseded();
+      }
+      const payload = await this.payload(block);
+      const v = new DataView(payload);
+      if (block.count !== 1 || block.bytes < 13 || block.bytes > 1035) {
+        throw Error('Invalid Lua instruction source.');
+      }
+      const id = v.getUint32(0, true);
+      const line = v.getInt32(4, true);
+      const length = v.getUint32(8, true);
+      if (
+        !id ||
+        id > 5000 ||
+        line < 0 ||
+        length < 1 ||
+        length + 12 !== block.bytes ||
+        sources.has(id)
+      ) {
+        throw Error('Invalid Lua instruction source.');
+      }
+      sources.set(id, {
+        source: new TextDecoder('utf-8', { fatal: true }).decode(
+          new Uint8Array(payload, 12, length),
+        ),
+        line,
+      });
+      await yieldTask();
+    }
+    return sources;
+  }
+
+  async *luaInstructionContexts(start: number, end: number) {
+    for (const block of this.luaInstructionIndex.query(
+      (start * this.frequency) / 1000,
+      (end * this.frequency) / 1000,
+    )) {
+      if (this.cancelled()) {
+        throw new Superseded();
+      }
+      const v = new DataView(await this.payload(block));
+      for (let p = 0; p < block.bytes; p += 40) {
+        const ticks = integer(v, p);
+        const thread = v.getUint32(p + 8, true);
+        const flags = v.getUint32(p + 12, true);
+        const depth = v.getUint32(p + 16, true);
+        const source = v.getUint32(p + 20, true);
+        if (
+          !thread ||
+          flags > 15 ||
+          depth > 4 ||
+          source > 5000 ||
+          (!(flags & 1) && (depth || source)) ||
+          (flags & 4 && (depth || source)) ||
+          ticks < block.minimum ||
+          ticks >= block.maximum
+        ) {
+          throw Error('Invalid Lua instruction context.');
+        }
+        const metrics = Array.from({ length: depth }, (_, i) =>
+          v.getUint32(p + 24 + i * 4, true),
+        );
+        if (metrics.some((id) => !id || id > 100000)) {
+          throw Error('Invalid Lua instruction context metric.');
+        }
+        const time = (ticks / this.frequency) * 1000;
+        if (time >= start && time < end) {
+          yield { time, thread, flags, metrics, source };
+        }
+      }
+      await yieldTask();
     }
   }
 

@@ -33,6 +33,44 @@ export async function instructionCapture(
     !!((stream.document.configuration?.channels ?? 0) & 4096) ||
     stream.blocks.some((b) => b.type === 17);
   const modules = available ? await stream.nativeModules() : [];
+  const luaAvailable = stream.blocks.some((b) => b.type === 22);
+  const luaOwners = new Map<
+    string,
+    {
+      metric: number;
+      thread: number;
+      mod: string;
+      hook: string;
+      source: string;
+      line: number;
+      count: number;
+      coveredWait: number;
+    }
+  >();
+  const sourceDefinitions = stream.blocks.some((b) => b.type === 23)
+    ? await stream.luaInstructionSources()
+    : new Map<number, { source: string; line: number }>();
+  const luaSources = new Map<
+    string,
+    {
+      metric: number;
+      thread: number;
+      mod: string;
+      hook: string;
+      source: string;
+      line: number;
+      count: number;
+      coveredWait: number;
+    }
+  >();
+  let luaSourceFailures = 0;
+  let luaMissingSources = 0;
+  let luaContexts = 0;
+  let luaAttributed = 0;
+  let luaUnverified = 0;
+  let luaReadFailures = 0;
+  let luaPartial = 0;
+  let luaMissingMetrics = 0;
   const locate = (raw: string, bucket: boolean) => {
     const address = BigInt(raw);
     const module = modules.find(
@@ -75,6 +113,24 @@ export async function instructionCapture(
     for (let from = start; from < end; from += 250) {
       const to = Math.min(end, from + 250);
       const waits: NativeWait[] = [];
+      const contexts = new Map<
+        string,
+        { flags: number; metrics: number[]; source: number }
+      >();
+      if (luaAvailable) {
+        for await (const context of stream.luaInstructionContexts(from, to)) {
+          const key = `${context.thread}:${context.time}`;
+          if (contexts.has(key)) {
+            throw Error('Duplicate Lua instruction context.');
+          }
+          contexts.set(key, context);
+          if (contexts.size > 10000) {
+            throw Error(
+              'Too many Lua contexts in a sample window; narrow the range.',
+            );
+          }
+        }
+      }
       if (waitCoverage) {
         for await (const wait of stream.waits(from, to)) {
           waits.push(wait);
@@ -94,6 +150,54 @@ export async function instructionCapture(
             sample.time < w.start + w.duration,
         );
         count++;
+        const context = contexts.get(`${sample.thread}:${sample.time}`);
+        if (context) {
+          luaContexts++;
+          luaUnverified += Number(!(context.flags & 1));
+          luaReadFailures += Number(!!(context.flags & 4));
+          luaPartial += Number(!!(context.flags & 2));
+          luaSourceFailures += Number(!!(context.flags & 8));
+          const metric = stream.metrics.get(context.metrics[0]);
+          if (context.metrics.length && !metric) {
+            luaMissingMetrics++;
+          }
+          if (metric && !(context.flags & 4)) {
+            luaAttributed++;
+            const key = `${sample.thread}:${metric.id}`;
+            const owner = luaOwners.get(key) ?? {
+              metric: metric.id,
+              thread: sample.thread,
+              mod: metric.mod,
+              hook: metric.callback_name,
+              source: metric.source,
+              line: metric.line,
+              count: 0,
+              coveredWait: 0,
+            };
+            owner.count++;
+            owner.coveredWait += Number(waiting);
+            luaOwners.set(key, owner);
+          }
+          const definition = sourceDefinitions.get(context.source);
+          if (context.source && !definition) {
+            luaMissingSources++;
+          }
+          if (definition && !(context.flags & 4)) {
+            const key = `${sample.thread}:${context.source}:${metric?.id ?? 0}`;
+            const source = luaSources.get(key) ?? {
+              metric: metric?.id ?? 0,
+              thread: sample.thread,
+              mod: metric?.mod ?? 'Unwrapped Lua',
+              hook: metric?.callback_name ?? 'No wrapper',
+              ...definition,
+              count: 0,
+              coveredWait: 0,
+            };
+            source.count++;
+            source.coveredWait += Number(waiting);
+            luaSources.set(key, source);
+          }
+        }
         coveredWait += Number(waiting);
         pauseTotal += sample.pause;
         pauseMaximum = Math.max(pauseMaximum, sample.pause);
@@ -124,6 +228,21 @@ export async function instructionCapture(
       )
       .slice(0, limit);
   return {
+    luaSourceFailures,
+    luaMissingSources,
+    luaSources: [...luaSources.values()]
+      .sort((a, b) => b.count - a.count || a.source.localeCompare(b.source))
+      .slice(0, limit),
+    luaAvailable,
+    luaContexts,
+    luaAttributed,
+    luaUnverified,
+    luaReadFailures,
+    luaPartial,
+    luaMissingMetrics,
+    luaOwners: [...luaOwners.values()]
+      .sort((a, b) => b.count - a.count || a.metric - b.metric)
+      .slice(0, limit),
     available,
     waitCoverage,
     count,
@@ -136,6 +255,6 @@ export async function instructionCapture(
     returns: ranked(returns),
     sessionStats: available ? await stream.samplingStats() : null,
     limitation:
-      'Discrete wall-time instruction snapshots on registered Lua/render threads, including sleeping threads; counts are not CPU time or GPU time. Locations use 64-byte buckets. Covered waits include only the six instrumented APIs. Up to four frame-pointer return candidates are partial and may be absent or inaccurate when frame pointers are omitted. Sampling briefly suspends threads. Measured pause covers context readback through resume; it excludes entering SuspendThread and other profiler work.',
+      'Discrete wall-time instruction snapshots on registered Lua/render threads, including sleeping threads; counts are not CPU time or GPU time. Locations use 64-byte buckets. Covered waits include only the six instrumented APIs. Up to four frame-pointer return candidates are partial and may be absent or inaccurate when frame pointers are omitted. Lua owners identify the innermost existing profiler wrapper on the main Lua state; Lua source snapshots identify the nearest main-state Lua function definition, not its currently executing line. Owner source lines identify wrapper definitions. Unwrapped work and coroutine interiors can remain unattributed. Sampling briefly suspends threads. Measured pause covers context readback through resume, including Lua context reads; it excludes entering SuspendThread and other profiler work.',
   };
 }

@@ -103,7 +103,11 @@ export default function PresentationFrames({
                     remain available independently.
                   </div>
                 )}
-                <InstructionSamples result={result.samples} />
+                <InstructionSamples
+                  result={result.samples}
+                  data={data}
+                  request={request}
+                />
                 <div className="frame-stats">
                   {[
                     ['Intervals', count(result.count)],

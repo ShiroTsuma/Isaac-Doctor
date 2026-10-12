@@ -498,6 +498,8 @@ const channelNames: Record<number, string> = {
   17: 'native_waits',
   18: 'render_state',
   19: 'native_modules',
+  22: 'lua-instruction-contexts',
+  23: 'lua-instruction-sources',
   20: 'instruction-samples',
   21: 'sampling-stats',
   16: 'presentation',

@@ -9,13 +9,13 @@ def decode_stream(data):
     frequency=struct.unpack_from('<Q',data,24)[0]
     if not frequency: raise ValueError('Invalid QPC frequency')
     index_offset=index_size=index_end=-1
-    offset=40; metadata=None; events=[]; shots=[]; intervals=[]; counters=[];heap=[];markers=[];inventory=[];context=[];overhead=[];errors=[];presentation=[];waits=[];render_states=[];configuration=None;finalized=False;instructions=[];sampling_stats=[]
+    offset=40; metadata=None; events=[]; shots=[]; intervals=[]; counters=[];heap=[];markers=[];inventory=[];context=[];overhead=[];errors=[];presentation=[];waits=[];render_states=[];configuration=None;finalized=False;instructions=[];sampling_stats=[];lua_instructions=[];lua_sources={}
     while offset+8<=len(data):
         if data[offset:offset+8]==b'IPEND003':
             finalized=offset+32<=len(data) and index_end==offset and struct.unpack_from('<QI',data,offset+8)==(index_offset,index_size);break
         if offset+48>len(data): break
         magic,kind,version,size,count,sequence,minimum,maximum,crc,flags=struct.unpack_from('<IHHIIQQQII',data,offset)
-        if magic!=0x4b4e4843 or size>64*1024*1024 or (kind<=21 and version!=1): raise ValueError('Invalid stream block')
+        if magic!=0x4b4e4843 or size>64*1024*1024 or (kind<=23 and version!=1): raise ValueError('Invalid stream block')
         offset+=48
         if offset+size>len(data): break
         payload=data[offset:offset+size];offset+=size
@@ -92,6 +92,17 @@ def decode_stream(data):
                 stamp,address,cycles,pause,thread,roles,depth,reserved,*returns=struct.unpack_from('<QQQQIIIIIIII',payload,p)
                 if not thread or not 0<address<2**32 or roles>7 or depth>4 or reserved or not minimum<=stamp<maximum:raise ValueError('Invalid instruction sample')
                 instructions.append(dict(time_ns=stamp*1e9/frequency,address=hex(address),cycles=cycles if roles&1 else None,pause_ns=pause*1e9/frequency,thread=thread,flags=roles,returns=[hex(a) for a in returns[:depth]]))
+        elif kind==22:
+            if size!=count*40 or not 1<=count<=1024:raise ValueError('Invalid Lua instruction context block')
+            for p in range(0,size,40):
+                stamp,thread,flags,depth,source,*metrics=struct.unpack_from('<QIIIIIIII',payload,p)
+                if not thread or flags>15 or depth>4 or source>5000 or (depth or source) and (not flags&1 or flags&4) or not minimum<=stamp<maximum:raise ValueError('Invalid Lua instruction context')
+                lua_instructions.append(dict(time_ns=stamp*1e9/frequency,thread=thread,flags=flags,source=source,metrics=metrics[:depth]))
+        elif kind==23:
+            if count!=1 or not 13<=size<=1035:raise ValueError('Invalid Lua instruction source')
+            id,line,length=struct.unpack_from('<IiI',payload)
+            if not 0<id<=5000 or line<0 or not 1<=length<=1023 or length+12!=size or id in lua_sources:raise ValueError('Invalid Lua instruction source')
+            lua_sources[id]=dict(source=payload[12:].decode('utf8'),line=line)
         elif kind==21:
             if size!=64 or count!=1:raise ValueError('Invalid sampling stats block')
             values=struct.unpack_from('<QQQQQQQQ',payload)
@@ -144,7 +155,7 @@ def decode_stream(data):
     metadata['frame_intervals']=intervals
     metadata['presentation']=presentation
     metadata['native_waits']=waits;metadata['render_states']=render_states
-    metadata['instruction_samples']=instructions;metadata['sampling_stats']=sampling_stats
+    metadata['instruction_samples']=instructions;metadata['sampling_stats']=sampling_stats;metadata['lua_instruction_contexts']=lua_instructions;metadata['lua_instruction_sources']=lua_sources
     events.sort(key=lambda e:(e[1],e[4]));metadata['timeline']['events']=events;metadata['screenshots']['images']=shots
     metadata['duration_ns']=max(metadata['duration_ns'],max((e[1]+e[2] for e in events),default=0))
     return metadata
