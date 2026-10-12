@@ -62,6 +62,10 @@ Controlled capture tests use owned Lua host processes rather than launching Isaa
 python tests/capture-triggers.py
 python tests/stream-smoke.py
 python tests/controller-server.py
+python tests/recording-settings.py
+python tests/recording-settings-server.py
+python tests/presentation-smoke.py
+python tests/instruction-smoke.py
 node --experimental-strip-types --test tests/diagnosis.test.cjs tests/cli.test.cjs tests/debugging.test.cjs tests/frames.test.cjs tests/worker-client.test.cjs tests/recording-files.test.cjs
 ```
 

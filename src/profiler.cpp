@@ -1,6 +1,7 @@
 #include "control.hpp"
 #include "lua_api.hpp"
 #include "native_waits.hpp"
+#include "instruction_samples.hpp"
 #include "bootstrap.hpp"
 #include "binary.hpp"
 #include "screenshots.hpp"
@@ -27,7 +28,7 @@ ip::Control* control = nullptr;
 std::atomic<lua_State*> mainState{nullptr};
 std::atomic<DWORD> luaThread{0};
 std::atomic<bool> active{false};
-std::atomic<LONG> channels{ip::allChannels};
+std::atomic<LONG> channels{ip::defaultChannels};
 std::set<std::string> selectedMods, selectedHooks;
 bool enabled(ip::Channel channel) { return (channels.load(std::memory_order_relaxed) & channel) != 0; }
 std::set<std::string> readScope(const char* value, size_t capacity) {
@@ -592,6 +593,10 @@ void sendPacket(unsigned type, const std::string& bytes) {
 void sampleCounters() {
     std::uint64_t waitsOmitted = 0;
     const auto waits = ip::drainWaits(waitsOmitted);
+    ip::StreamSamplingStats sampling{};
+    const auto instructions = ip::drainInstructionSamples(sampling);
+    if (!instructions.empty()) sendPacket(ip::instructionChunk, std::string(reinterpret_cast<const char*>(instructions.data()), instructions.size() * sizeof(ip::StreamInstruction)));
+    if (channels.load() & ip::instructions) sendPacket(ip::samplingStatsChunk, std::string(reinterpret_cast<const char*>(&sampling), sizeof(sampling)));
     auxiliaryDropped += waitsOmitted;
     if (!waits.empty()) sendPacket(ip::waitChunk, std::string(
         reinterpret_cast<const char*>(waits.data()), waits.size() * sizeof(ip::StreamWait)));
@@ -600,9 +605,15 @@ void sampleCounters() {
     if (moduleGeneration != generation.load()) {
         waitModules.clear(); moduleGeneration = generation.load();
     }
-    for (const auto& wait : waits) {
+    std::vector<std::uint64_t> addresses;
+    for (const auto& wait : waits) addresses.push_back(wait.caller);
+    for (const auto& sample : instructions) {
+        addresses.push_back(sample.address);
+        for (unsigned i = 0; i < sample.returnCount; ++i) addresses.push_back(sample.returns[i]);
+    }
+    for (const auto address : addresses) {
         MEMORY_BASIC_INFORMATION memory{};
-        if (!VirtualQuery(reinterpret_cast<void*>(static_cast<std::uintptr_t>(wait.caller)), &memory, sizeof(memory)) || memory.Type != MEM_IMAGE) continue;
+        if (!VirtualQuery(reinterpret_cast<void*>(static_cast<std::uintptr_t>(address)), &memory, sizeof(memory)) || memory.Type != MEM_IMAGE) continue;
         const auto base = reinterpret_cast<std::uintptr_t>(memory.AllocationBase);
         if (waitModules.contains(base) || waitModules.size() >= 2000) continue;
         MODULEINFO module{}; wchar_t name[32768]{};
@@ -688,7 +699,7 @@ void snapshot(bool complete) {
     writer.put<std::uint32_t>(registeredCount.load()); writer.put<std::uint32_t>(savedMetrics.size());
     writer.put<std::uint32_t>(0); writer.put<std::uint32_t>(stream->capacity);
     writer.put<std::uint64_t>(dropped.load()); writer.put<std::uint64_t>(skippedCoroutines.load()); writer.put<std::uint64_t>(hostCalls.load());
-    writer.put<std::uint64_t>(traceDropped.load()); writer.put<std::uint64_t>(traceFiltered.load()); writer.put(ns(minimumTicks)); writer.string("0.11.8");
+    writer.put<std::uint64_t>(traceDropped.load()); writer.put<std::uint64_t>(traceFiltered.load()); writer.put(ns(minimumTicks)); writer.string("0.11.9");
     const auto exeUtf8 = std::filesystem::path(exe).u8string();
     writer.string(std::string(reinterpret_cast<const char*>(exeUtf8.data()), exeUtf8.size())); writer.string(luaModulePath);
     for (const auto& [id, m] : savedMetrics) {
@@ -800,6 +811,7 @@ DWORD WINAPI worker(void*) {
                         ip::configureScreenshots(ip::read(&control->screenshots) != 0, static_cast<unsigned>(screenshotMs));
                         ip::configurePresentation((mask & ip::presentation)!=0);
                         ip::configureWaits((mask & ip::waits)!=0);
+                        ip::configureInstructionSamples((mask & ip::instructions)!=0);
                         {
                             std::lock_guard lock(metricsMutex);
                             channels = mask; selectedMods = mods; selectedHooks = hooks;
@@ -885,7 +897,9 @@ DWORD WINAPI worker(void*) {
                 status(ip::ready, "Callback instrumentation ready.");
             }
             ip::processScreenshots();
-            Sleep((pendingStart.load() && startDeadline.load()) || stopDeadline.load() || captureDeadline.load() ? 10 : 50);
+            ip::sampleInstructions();
+            const auto sampleDelay = ip::instructionPollDelay();
+            Sleep(sampleDelay ? sampleDelay : ((pendingStart.load() && startDeadline.load()) || stopDeadline.load() || captureDeadline.load() ? 10 : 50));
         }
     } catch (const std::exception& error) {
         active.store(false); pendingStart.store(false); ip::setScreenshotClock(false, 0, frequency.QuadPart);

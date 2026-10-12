@@ -13,6 +13,7 @@ import re
 from ctypes import wintypes
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
+from recording_settings import read_settings, write_settings
 
 packaged = getattr(sys, 'frozen', False)
 root = pathlib.Path(sys.executable).resolve().parent if packaged else pathlib.Path(__file__).resolve().parents[1]
@@ -21,10 +22,13 @@ parser.add_argument('--port', type=int, default=8765)
 parser.add_argument('--no-browser', action='store_true', help='Do not automatically open a browser in the portable release')
 parser.add_argument('--pid', type=int, help='Controlled test host only; default searches the already running Isaac process')
 parser.add_argument('--parent-pid', type=int, help='Managed Vite owner; stop recording and close server when this process ends')
+parser.add_argument('--settings-file', type=pathlib.Path, help='Capture preference file; defaults beside IsaacDoctor.exe')
 args = parser.parse_args()
 assets = root / 'viewer/dist'
 token = secrets.token_urlsafe(32)
 controller_lock = threading.Lock()
+settings_lock = threading.Lock()
+settings_file = args.settings_file or root / 'isaac-doctor.settings.json'
 injector = root / ('bin' if packaged else 'build/Release') / 'isaacprof-injector.exe'
 
 def stop_recording():
@@ -58,7 +62,7 @@ def control(command, options=None):
             if value and (key != 'afterLoad' or 'startOn' not in values):
                 arguments.append(flag)
         mask = values.get('channels', 8191)
-        if type(mask) is not int or mask < 0 or mask & ~8191:
+        if type(mask) is not int or mask < 0 or mask & ~16383:
             raise ValueError('Invalid capture channel mask')
         arguments += ['--channels', str(mask)]
         for key, flag in [('selectedMods', '--mod'), ('selectedHooks', '--hook')]:
@@ -128,6 +132,13 @@ class Handler(SimpleHTTPRequestHandler):
             self.reply(json.dumps({'app': 'isaacprof', 'root': str(root), 'parent_pid': args.parent_pid}).encode())
         elif route.path == '/api/session':
             self.reply(json.dumps({'token': token}).encode())
+        elif route.path == '/api/settings':
+            try:
+                with settings_lock:
+                    settings = read_settings(settings_file)
+                self.reply(json.dumps({'settings': settings, 'path': str(settings_file)}).encode())
+            except (ValueError, OSError) as error:
+                self.reply(json.dumps({'message': str(error)}).encode(), status=400)
         elif route.path == '/api/catalog':
             try:
                 self.reply(json.dumps(control('catalog')).encode())
@@ -148,7 +159,8 @@ class Handler(SimpleHTTPRequestHandler):
             super().do_GET()
 
     def do_POST(self):
-        if urlsplit(self.path).path != '/api/control':
+        route = urlsplit(self.path).path
+        if route not in ('/api/control', '/api/settings'):
             self.send_error(404); return
         # Only this local UI may control the injector. No general commands, paths,
         # uploads, game launch or game termination are exposed.
@@ -163,6 +175,11 @@ class Handler(SimpleHTTPRequestHandler):
             body = json.loads(self.rfile.read(size))
             if not isinstance(body, dict) or not secrets.compare_digest(str(body.get('token', '')), token):
                 self.send_error(403); return
+            if route == '/api/settings':
+                with settings_lock:
+                    settings = write_settings(settings_file, body.get('settings'))
+                self.reply(json.dumps({'settings': settings, 'path': str(settings_file)}).encode())
+                return
             command = body.get('command')
             if command not in ('attach', 'record', 'stop', 'shutdown'):
                 raise ValueError('Unsupported control command')

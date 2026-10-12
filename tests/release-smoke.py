@@ -103,6 +103,13 @@ try:
                 assert response.status==200 and response.headers['Cache-Control']=='no-store'
     check_assets()
     token = request('/api/session')['token']
+    from recording_settings import DEFAULTS
+    saved_preferences = {'version': 1, 'recording': {**DEFAULTS, 'seconds': 6, 'channels': 8192}}
+    initial = request('/api/settings')
+    assert initial['settings'] is None
+    assert pathlib.Path(initial['path']) == package / 'isaac-doctor.settings.json'
+    assert request('/api/settings', {'token': token, 'settings': saved_preferences})['settings'] == saved_preferences
+    assert json.loads((package / 'isaac-doctor.settings.json').read_text()) == saved_preferences
     def command(name, **values):
         result = request('/api/control', {'token': token, 'command': name, **values})
         assert result['ok'], result
@@ -144,6 +151,7 @@ try:
     else:raise AssertionError('Release did not restart')
     check_assets()
     token=request('/api/session')['token']
+    assert request('/api/settings')['settings'] == saved_preferences, 'Portable restart lost capture settings'
     # Reopening the executable reuses this owner, without an extra background server.
     reopened=subprocess.run([str(package/'IsaacDoctor.exe'),'--no-browser','--port',str(port)],cwd=output,env=env,stdin=subprocess.DEVNULL,capture_output=True,text=True,timeout=10)
     assert reopened.returncode==0 and 'already running' in reopened.stdout

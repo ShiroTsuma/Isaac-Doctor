@@ -34,7 +34,7 @@ test('capture scope preferences preserve exact Unicode names and reject corrupt 
  Object.defineProperty(globalThis,'localStorage',{value:undefined,writable:true,configurable:true});
  try{
   global.localStorage={getItem:()=>JSON.stringify({channels:12,selectedMods:['Mód'],selectedHooks:['MC_POST_RENDER']})};assert.deepEqual(readCaptureScope(),{channels:12,selectedMods:['Mód'],selectedHooks:['MC_POST_RENDER']});
-  global.localStorage={getItem:()=>JSON.stringify({channels:8192,selectedMods:['bad\nname'],selectedHooks:'bad'})};assert.deepEqual(readCaptureScope(),{channels:8191,selectedMods:[],selectedHooks:[]});
+  global.localStorage={getItem:()=>JSON.stringify({channels:16384,selectedMods:['bad\nname'],selectedHooks:'bad'})};assert.deepEqual(readCaptureScope(),{channels:8191,selectedMods:[],selectedHooks:[]});
   global.localStorage={getItem:()=>JSON.stringify({channels:2048})};assert.deepEqual(readCaptureScope(),{channels:2048,selectedMods:[],selectedHooks:[]});
   global.localStorage={getItem:()=>JSON.stringify({channels:2047})};assert.deepEqual(readCaptureScope(),{channels:8191,selectedMods:[],selectedHooks:[]});
   global.localStorage={getItem:()=>JSON.stringify({channels:4095})};assert.deepEqual(readCaptureScope(),{channels:8191,selectedMods:[],selectedHooks:[]});

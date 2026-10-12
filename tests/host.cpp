@@ -9,6 +9,14 @@ extern "C" {
 #include "lauxlib.h"
 #include "lualib.h"
 }
+// A known native hotspot, deliberately separate from all Lua callbacks.
+__declspec(noinline) void TestNativeBusyLoop(DWORD milliseconds) {
+    LARGE_INTEGER frequency{}, start{}, now{};
+    QueryPerformanceFrequency(&frequency);
+    QueryPerformanceCounter(&start);
+    do { QueryPerformanceCounter(&now); }
+    while ((now.QuadPart - start.QuadPart) * 1000 < frequency.QuadPart * milliseconds);
+}
 int main(int argc, char** argv) {
     if (argc < 2 || argc > 3) { std::cerr << "Usage: isaacprof-test-host scenario.lua [--graphics]\n"; return 1; }
     HDC dc = nullptr; HGLRC gl = nullptr; HWND window = nullptr;
@@ -46,6 +54,9 @@ int main(int argc, char** argv) {
             lua_getglobal(L,"TestBeforeSwapDelayMs");
             const auto delay=lua_tointeger(L,-1);lua_pop(L,1);
             if(delay>0 && delay<=100)Sleep(static_cast<DWORD>(delay));
+            lua_getglobal(L,"TestNativeBusyMs");
+            const auto busy=lua_tointeger(L,-1);lua_pop(L,1);
+            if(busy>0 && busy<=100)TestNativeBusyLoop(static_cast<DWORD>(busy));
             lua_getglobal(L, "TestNativeWaits");
             const bool testWaits = lua_toboolean(L, -1) != 0;
             lua_pop(L, 1);

@@ -23,6 +23,17 @@ struct StreamWait {
 static_assert(sizeof(StreamWait) == 40);
 constexpr unsigned waitChunk = 17, renderStateChunk = 18;
 constexpr unsigned nativeModuleChunk = 19;
+constexpr unsigned instructionChunk = 20, samplingStatsChunk = 21;
+struct StreamInstruction {
+    std::uint64_t timestamp, address, cycles, pause;
+    std::uint32_t thread, flags;
+    std::uint32_t returnCount, reserved;
+    std::uint32_t returns[4];
+};
+struct StreamSamplingStats {
+    std::uint64_t timestamp, attempts, successes, failed, skipped, omitted, pauseTotal, pauseMaximum;
+};
+static_assert(sizeof(StreamInstruction) == 64 && sizeof(StreamSamplingStats) == 64);
 struct StreamContext {
     std::uint64_t timestamp;
     std::int32_t room, stage, stageType, roomType;

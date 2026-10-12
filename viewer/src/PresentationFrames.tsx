@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import InstructionSamples from './InstructionSamples.tsx';
 import SortableHeader from './SortableHeader.tsx';
 import { count, ms } from './trace.ts';
 import type { LoadedTrace, WorkerClient } from './types.ts';
@@ -86,7 +87,9 @@ export default function PresentationFrames({
       ) : (
         result && (
           <>
-            {!result.available && !result.waits.available ? (
+            {!result.available &&
+            !result.waits.available &&
+            !result.samples.available ? (
               <div className="frame-note">
                 Presentation measurements were not recorded in this file. Enable
                 “Presentation / SwapBuffers” in capture scope for the next
@@ -100,6 +103,7 @@ export default function PresentationFrames({
                     remain available independently.
                   </div>
                 )}
+                <InstructionSamples result={result.samples} />
                 <div className="frame-stats">
                   {[
                     ['Intervals', count(result.count)],

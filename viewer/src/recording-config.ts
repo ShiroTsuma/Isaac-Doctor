@@ -111,6 +111,7 @@ export const channelOptions = [
   [1024, 'Source hashes'],
   [2048, 'Presentation / SwapBuffers'],
   [4096, 'Native Sleep / wait calls'],
+  [8192, 'Native instruction samples (brief thread pauses; off by default)'],
 ] as const;
 export interface CaptureScope {
   channels: number;
@@ -145,7 +146,7 @@ export function readCaptureScope(): CaptureScope {
         typeof scope.channels === 'number' &&
         Number.isInteger(scope.channels) &&
         scope.channels >= 0 &&
-        scope.channels <= 8191
+        scope.channels <= 16383
           ? scope.channels === 2047 || scope.channels === 4095
             ? 8191
             : scope.channels

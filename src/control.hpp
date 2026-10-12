@@ -3,9 +3,9 @@
 #include <string>
 
 namespace ip {
-constexpr LONG protocol = 11;
-enum Channel : LONG { callbacks = 1, timeline = 2, renderFrames = 4, updateFrames = 8, counters = 16, heap = 32, context = 64, markers = 128, overhead = 256, errors = 512, sources = 1024, presentation = 2048, waits = 4096 };
-constexpr LONG allChannels = 8191;
+constexpr LONG protocol = 12;
+enum Channel : LONG { callbacks = 1, timeline = 2, renderFrames = 4, updateFrames = 8, counters = 16, heap = 32, context = 64, markers = 128, overhead = 256, errors = 512, sources = 1024, presentation = 2048, waits = 4096, instructions = 8192 };
+constexpr LONG allChannels = 16383, defaultChannels = 8191;
 enum Trigger : LONG { immediate, run_load, room_entry, level_entry, projectile, tear, effect, npc, damage, run_end, game_exit, duration, manual };
 inline constexpr const char* triggerNames[] = {"immediate","run-load","room-entry","level-entry","projectile","tear","effect","npc","damage","run-end","game-exit","duration","manual"};
 enum Command : LONG { none = 0, start = 1, stop = 2, catalog = 3 };

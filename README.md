@@ -50,6 +50,8 @@ StageAPI's custom callbacks are measured under their owning mod and `StageAPI:HO
 4. Choose **Connect captures folder** and select the extracted package's `bin/captures` folder. This lets the viewer refresh and open completed recordings automatically.
 5. Choose your recording conditions, click **Record**, and reproduce the slowdown. The default collects 25 seconds after a loaded-run update.
 
+Capture preferences are saved automatically to **`isaac-doctor.settings.json` beside `IsaacDoctor.exe`**: channels, mod/hook filters, start/stop conditions, delays, duration, screenshots and the capture duration threshold. They return on the next launch, independently of browser storage. Keep this file when replacing the portable application folder. Invalid files are reported and left unchanged. Browser directory permissions remain managed by the browser.
+
 No Python, Node.js, Visual Studio or build step is needed for the portable release. To build the project yourself, follow [Building and testing](docs/BUILDING.md).
 
 > [!IMPORTANT]
@@ -73,6 +75,8 @@ Closing the browser tab alone leaves the controller running. The game stays open
 Open **Frames**, choose Render or Update, and sort by wall time. Inspect the retained callback breakdown or select the costliest callback. For a selection shorter than one complete interval, use **Show enclosing frame**.
 
 If a slow interval has little extra Lua work, choose **Frames → Presentation**. The independent **Presentation / SwapBuffers** capture channel measures time between swap returns, time inside `SwapBuffers`, and screenshot-hook cost. Add a presentation timing graph to compare spikes across the same range. These measurements help separate callback costs from delays elsewhere; they do not identify a GPU bottleneck or measure time on the display.
+
+For unresolved native work, enable **Native instruction samples** for a short diagnostic recording. This channel is **off by default** because it briefly pauses the observed threads. **Frames → Presentation** shows module/RVA hotspots, snapshots inside covered waits, partial frame-pointer return candidates, and measured readback/resume pause cost. Snapshot counts include sleeping threads; they are not CPU or GPU percentages. The CLI exposes the same data with `samples CAPTURE.isaacprof --non-interactive`.
 
 Enable **Native Sleep / wait calls** to inspect explicit Windows waits on the observed Lua and rendering threads. **Frames → Presentation** shows the six covered APIs, requested timeouts, observed wall durations and call sites as `module+offset`. Click a wait to select its exact span, or add the **Native Sleep / waits (ms)** graph alongside presentation timing. A 1 ms requested timeout can have a longer observed duration. Wait spans can overlap callbacks and `SwapBuffers`; do not add these times together.
 

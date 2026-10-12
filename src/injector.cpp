@@ -119,7 +119,7 @@ int wmain(int argc, wchar_t** argv) {
         LONG screenshotMs = 500;
         LONG startOn = ip::immediate, stopOn = ip::duration, startDelayMs = 0, stopDelayMs = 0;
         LONG maxDurationMs = 0;
-        bool startSpecified = false; LONG channels = ip::allChannels; std::string selectedMods, selectedHooks;
+        bool startSpecified = false; LONG channels = ip::defaultChannels; std::string selectedMods, selectedHooks;
         wchar_t exe[32768]{}; GetModuleFileNameW(nullptr, exe, 32768);
         auto dll = std::filesystem::path(exe).parent_path() / "isaacprof.dll";
         for (int i = 2; i < argc; ++i) {

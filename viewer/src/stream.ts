@@ -97,6 +97,7 @@ export class StreamCapture {
   intervalIndex = new TimeIndex<Block>([]);
   presentationIndex = new TimeIndex<Block>([]);
   waitIndex = new TimeIndex<Block>([]);
+  instructionIndex = new TimeIndex<Block>([]);
   cancelled = () => false;
   onProgress: (progress: ProcessingProgress) => void = () => {};
   private progress(stage: string, total: number) {
@@ -595,7 +596,7 @@ export class StreamCapture {
     let maximum = 0;
     for (let i = 0; i < this.blocks.length; i++) {
       const b = this.blocks[i];
-      if (b.type <= 19 && b.version !== 1) {
+      if (b.type <= 21 && b.version !== 1) {
         throw Error('Unsupported required block version.');
       }
       if (
@@ -615,6 +616,15 @@ export class StreamCapture {
       }
       if (b.type === 19 && (b.count !== 1 || b.bytes < 20 || b.bytes > 32788)) {
         throw Error('Invalid native module chunk.');
+      }
+      if (
+        b.type === 20 &&
+        (b.bytes !== b.count * 64 || !b.count || b.count > 1024)
+      ) {
+        throw Error('Invalid instruction sample chunk.');
+      }
+      if (b.type === 21 && (b.bytes !== 64 || b.count !== 1)) {
+        throw Error('Invalid sampling statistics chunk.');
       }
       if (
         (b.type === 12 || b.type === 13) &&
@@ -709,7 +719,7 @@ export class StreamCapture {
           selectedHooks: names(),
         };
         if (
-          config.channels > 8191 ||
+          config.channels > 16383 ||
           config.startOn > 10 ||
           config.stopOn < 1 ||
           config.stopOn > 12 ||
@@ -779,6 +789,9 @@ export class StreamCapture {
       this.blocks.filter((b) => b.type === 16),
     );
     this.waitIndex = new TimeIndex(this.blocks.filter((b) => b.type === 17));
+    this.instructionIndex = new TimeIndex(
+      this.blocks.filter((b) => b.type === 20),
+    );
     this.document.duration_ns = this.duration * 1e6;
     this.captureKey = `${header.getUint32(16, true)}:${header.getBigUint64(32, true)}:${this.sourceSize}:${this.indexCRC}`;
     if (location && finalized) {
@@ -1112,6 +1125,99 @@ export class StreamCapture {
       }
     }
     return modules;
+  }
+
+  async *instructionSamples(
+    start: number,
+    end: number,
+  ): AsyncGenerator<import('./types.ts').InstructionSample> {
+    let yielded = performance.now();
+    for (const block of this.instructionIndex.query(
+      (start * this.frequency) / 1000,
+      (end * this.frequency) / 1000,
+    )) {
+      if (this.cancelled()) {
+        throw new Superseded();
+      }
+      const v = new DataView(await this.payload(block));
+      for (let p = 0; p < block.bytes; p += 64) {
+        const ticks = integer(v, p);
+        const address = v.getBigUint64(p + 8, true);
+        const thread = v.getUint32(p + 32, true);
+        const flags = v.getUint32(p + 36, true);
+        const depth = v.getUint32(p + 40, true);
+        if (
+          !thread ||
+          !address ||
+          address > 0xffffffffn ||
+          flags > 7 ||
+          depth > 4 ||
+          v.getUint32(p + 44, true) ||
+          ticks < block.minimum ||
+          ticks >= block.maximum
+        ) {
+          throw Error('Invalid instruction sample.');
+        }
+        const time = (ticks / this.frequency) * 1000;
+        if (time >= start && time < end) {
+          yield {
+            time,
+            address: '0x' + address.toString(16),
+            thread,
+            flags,
+            cycles: flags & 1 ? integer(v, p + 16) : null,
+            pause: (integer(v, p + 24) / this.frequency) * 1000,
+            returns: Array.from(
+              { length: depth },
+              (_, i) => '0x' + v.getUint32(p + 48 + i * 4, true).toString(16),
+            ),
+          };
+        }
+        if (performance.now() - yielded > 8) {
+          await yieldTask();
+          yielded = performance.now();
+          if (this.cancelled()) {
+            throw new Superseded();
+          }
+        }
+      }
+    }
+  }
+
+  async samplingStats() {
+    const block = this.blocks.filter((b) => b.type === 21).at(-1);
+    if (!block) {
+      return null;
+    }
+    const v = new DataView(await this.payload(block));
+    const values = Array.from({ length: 8 }, (_, i) => integer(v, i * 8));
+    const [
+      time,
+      attempts,
+      successes,
+      failed,
+      skipped,
+      omitted,
+      pauseTotal,
+      pauseMaximum,
+    ] = values;
+    if (
+      successes + failed + skipped > attempts ||
+      omitted > successes ||
+      pauseMaximum > pauseTotal
+    ) {
+      throw Error('Invalid sampling statistics.');
+    }
+    return {
+      time: (time / this.frequency) * 1000,
+      attempts,
+      successes,
+      failed,
+      skipped,
+      omitted,
+      pauseTotal: (pauseTotal / this.frequency) * 1000,
+      pauseMaximum: (pauseMaximum / this.frequency) * 1000,
+    };
   }
 
   async renderStates(end = this.duration): Promise<RenderState[]> {

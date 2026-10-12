@@ -23,3 +23,5 @@ node_modules/
 !.env.example
 *.pem
 *.key
+/isaac-doctor.settings.json
+/isaac-doctor.settings.json.*.tmp

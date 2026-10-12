@@ -97,3 +97,9 @@ Diagnosis uses retained data, not the visual LOD, and is available in read-only 
 
 Use `frame FILE --id N --clock render --top 10 --non-interactive` to inspect an interval returned by `frames` or `diagnose`. The result shares the viewer's reference matching, mod → hook → function breakdown, boundary-crossing count and attribution coverage. `--clock update` selects update intervals. `--id` is required; ambiguous IDs across threads are rejected. Each group is limited by `--top`, with a maximum of 500 output nodes.
 
+
+## Native instruction snapshots
+
+Use `samples FILE --start-ms 2500 --end-ms 6000 --top 30 --non-interactive` for an indexed range query. `presentation` includes the same sample analysis alongside swap intervals and covered waits. Instruction sampling must be explicitly enabled when recording; it is off by default.
+
+Results include per-thread module rankings, 64-byte instruction RVA buckets, partial frame-pointer return candidates, counts inside covered waits, retained-range pause totals, and whole-session sampling counters. Missing wait capture makes wait occupancy unknown. Snapshots include sleeping threads and are not CPU/GPU time or utilization. The recorded pause covers context readback through resume, excluding entering SuspendThread and other profiler work. Correlate hotspots with frame/wait selections and matching binaries before attributing a cause.

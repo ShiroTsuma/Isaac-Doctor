@@ -1,4 +1,5 @@
 #include "native_waits.hpp"
+#include "instruction_samples.hpp"
 #include <MinHook.h>
 #include <intrin.h>
 #include <array>
@@ -178,9 +179,10 @@ void configureWaits(bool use) {
     enabled.store(use);
 }
 
-void setWaitClock(bool use, long long start) { origin.store(start); active.store(use); }
+void setWaitClock(bool use, long long start) { origin.store(start); active.store(use); setInstructionClock(use, start); }
 void observeWaitThread(DWORD thread, bool rendering) {
     (rendering ? renderThread : luaThread).store(thread);
+    observeInstructionThread(thread, rendering);
 }
 unsigned waitHookMask() { return hookMask; }
 std::vector<StreamWait> drainWaits(std::uint64_t& omitted) {

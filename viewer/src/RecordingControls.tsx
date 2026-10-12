@@ -8,6 +8,10 @@ import {
   channelOptions,
 } from './recording-config.ts';
 import type { CaptureTrigger, RecordingConfig } from './recording-config.ts';
+import { parseRecordingPreferences } from './recording-settings.ts';
+
+// Serialize writes so a slower earlier request cannot replace newer preferences.
+let settingsWrite: Promise<unknown> = Promise.resolve();
 
 export interface RecordingStatus {
   ok: boolean;
@@ -79,6 +83,33 @@ async function controllerJson(response: Response): Promise<unknown> {
     );
   }
   return value;
+}
+
+function queueSettingsWrite(settingsKey: string) {
+  settingsWrite = settingsWrite
+    .catch(() => undefined)
+    .then(async () => {
+      const session = await controllerJson(await fetch('/api/session'));
+      if (
+        !session ||
+        typeof session !== 'object' ||
+        !('token' in session) ||
+        typeof session.token !== 'string'
+      ) {
+        throw Error('Invalid local session');
+      }
+      await controllerJson(
+        await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            token: session.token,
+            settings: JSON.parse(settingsKey) as unknown,
+          }),
+        }),
+      );
+    });
+  return settingsWrite;
 }
 
 export default function RecordingControls({
@@ -193,6 +224,116 @@ export default function RecordingControls({
       ? saved
       : 0;
   });
+  const [preferences, setPreferences] = useState({
+    loaded: false,
+    loading: true,
+    path: '',
+    message: 'Loading capture preferences…',
+  });
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const value = await controllerJson(await fetch('/api/settings'));
+        if (
+          !value ||
+          typeof value !== 'object' ||
+          !('settings' in value) ||
+          !('path' in value) ||
+          typeof value.path !== 'string'
+        ) {
+          throw Error('Invalid settings response');
+        }
+        if (!active) {
+          return;
+        }
+        if (value.settings !== null) {
+          const saved = parseRecordingPreferences(value.settings);
+          setSeconds(saved.seconds);
+          setScreenshots(saved.screenshots);
+          setScreenshotMs(saved.screenshotMs);
+          setMinimumUs(saved.minimumUs);
+          setConfig({
+            startOn: saved.startOn,
+            stopOn: saved.stopOn,
+            startDelayMs: saved.startDelayMs,
+            stopDelayMs: saved.stopDelayMs,
+            maxDurationMs: saved.maxDurationMs,
+          });
+          setScope({
+            channels: saved.channels,
+            selectedMods: saved.selectedMods,
+            selectedHooks: saved.selectedHooks,
+          });
+          setDrafts({
+            selectedMods: saved.selectedMods.join('\n'),
+            selectedHooks: saved.selectedHooks.join('\n'),
+          });
+        }
+        setPreferences({
+          loaded: true,
+          loading: false,
+          path: value.path,
+          message: '',
+        });
+      } catch (error) {
+        if (active) {
+          setPreferences({
+            loaded: false,
+            loading: false,
+            path: '',
+            message: `Capture preferences were not loaded or saved: ${error instanceof Error ? error.message : String(error)}`,
+          });
+        }
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+  const settingsKey = JSON.stringify({
+    version: 1,
+    recording: {
+      ...effectiveRecordingConfig(config),
+      ...scope,
+      seconds,
+      screenshots,
+      screenshotMs,
+      minimumUs,
+    },
+  });
+  useEffect(() => {
+    if (!preferences.loaded || serverClosed) {
+      return;
+    }
+    try {
+      parseRecordingPreferences(JSON.parse(settingsKey));
+    } catch {
+      return;
+    }
+    let active = true;
+    const timer = setTimeout(() => {
+      void queueSettingsWrite(settingsKey);
+      void settingsWrite
+        .then(() => {
+          if (active) {
+            setPreferences((p) => ({ ...p, message: '' }));
+          }
+        })
+        .catch((error: unknown) => {
+          if (active) {
+            setPreferences((p) => ({
+              ...p,
+              message: `Capture preferences could not be saved: ${error instanceof Error ? error.message : String(error)}`,
+            }));
+          }
+        });
+    }, 400);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [settingsKey, preferences.loaded, serverClosed]);
   useEffect(() => {
     if (serverClosed) {
       return;
@@ -296,6 +437,20 @@ export default function RecordingControls({
           'Restart the local controller to enable capture scope configuration.',
         );
       }
+      if (
+        (command === 'record' || command === 'shutdown') &&
+        preferences.loaded
+      ) {
+        try {
+          parseRecordingPreferences(JSON.parse(settingsKey));
+          await queueSettingsWrite(settingsKey);
+        } catch (error) {
+          setPreferences((p) => ({
+            ...p,
+            message: `Capture preferences could not be saved: ${error instanceof Error ? error.message : String(error)}`,
+          }));
+        }
+      }
       const response = await fetch('/api/control', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -365,6 +520,10 @@ export default function RecordingControls({
       : config.stopOn === 'duration'
         ? `Stops after ${Number.isNaN(seconds) ? 'the specified' : seconds} seconds.`
         : `${stopLabel}${effective.stopDelayMs ? ` + ${effective.stopDelayMs} ms stop delay` : ''} ends the recording.`;
+  if (preferences.loading) {
+    return <div role="status">Loading capture preferences...</div>;
+  }
+
   return (
     <>
       <div
@@ -632,6 +791,10 @@ export default function RecordingControls({
           delay. Empty delay fields mean 0 ms.
         </span>
       </div>
+      <p className="frame-note" role="status" title={preferences.path}>
+        {preferences.message ||
+          `Capture preferences saved automatically to ${preferences.path.split(/[/\\]/).at(-1)}.`}
+      </p>
       <details className="record-scope">
         <summary>
           Capture scope ·{' '}
@@ -647,6 +810,11 @@ export default function RecordingControls({
         </summary>
         <fieldset disabled={recording || busy}>
           <legend>Data channels</legend>
+          <p className="frame-note">
+            Native instruction samples briefly pause the Lua/render threads and
+            are off by default. Enable them for a short diagnostic recording;
+            use the measured pause cost in Presentation to assess their impact.
+          </p>
           <div className="scope-channels">
             {channelOptions.map(([bit, label]) => (
               <label key={bit}>

@@ -9,13 +9,13 @@ def decode_stream(data):
     frequency=struct.unpack_from('<Q',data,24)[0]
     if not frequency: raise ValueError('Invalid QPC frequency')
     index_offset=index_size=index_end=-1
-    offset=40; metadata=None; events=[]; shots=[]; intervals=[]; counters=[];heap=[];markers=[];inventory=[];context=[];overhead=[];errors=[];presentation=[];waits=[];render_states=[];configuration=None;finalized=False
+    offset=40; metadata=None; events=[]; shots=[]; intervals=[]; counters=[];heap=[];markers=[];inventory=[];context=[];overhead=[];errors=[];presentation=[];waits=[];render_states=[];configuration=None;finalized=False;instructions=[];sampling_stats=[]
     while offset+8<=len(data):
         if data[offset:offset+8]==b'IPEND003':
             finalized=offset+32<=len(data) and index_end==offset and struct.unpack_from('<QI',data,offset+8)==(index_offset,index_size);break
         if offset+48>len(data): break
         magic,kind,version,size,count,sequence,minimum,maximum,crc,flags=struct.unpack_from('<IHHIIQQQII',data,offset)
-        if magic!=0x4b4e4843 or size>64*1024*1024 or (kind<=19 and version!=1): raise ValueError('Invalid stream block')
+        if magic!=0x4b4e4843 or size>64*1024*1024 or (kind<=21 and version!=1): raise ValueError('Invalid stream block')
         offset+=48
         if offset+size>len(data): break
         payload=data[offset:offset+size];offset+=size
@@ -86,6 +86,17 @@ def decode_stream(data):
                 strings.append(payload[cursor:cursor+n].decode('utf-8',errors='replace'));cursor+=n
             if cursor!=size:raise ValueError('Trailing render state bytes')
             render_states.append(dict(time_ns=values[0]*1e9/frequency,thread=values[1],width=values[2],height=values[3],viewport=list(values[4:8]),swap_interval=values[8] if values[9]&2 else None,wait_hooks=values[10],vendor=strings[0],renderer=strings[1],version=strings[2]))
+        elif kind==20:
+            if size!=count*64 or not 1<=count<=1024:raise ValueError('Invalid instruction block')
+            for p in range(0,size,64):
+                stamp,address,cycles,pause,thread,roles,depth,reserved,*returns=struct.unpack_from('<QQQQIIIIIIII',payload,p)
+                if not thread or not 0<address<2**32 or roles>7 or depth>4 or reserved or not minimum<=stamp<maximum:raise ValueError('Invalid instruction sample')
+                instructions.append(dict(time_ns=stamp*1e9/frequency,address=hex(address),cycles=cycles if roles&1 else None,pause_ns=pause*1e9/frequency,thread=thread,flags=roles,returns=[hex(a) for a in returns[:depth]]))
+        elif kind==21:
+            if size!=64 or count!=1:raise ValueError('Invalid sampling stats block')
+            values=struct.unpack_from('<QQQQQQQQ',payload)
+            if sum(values[2:5])>values[1] or values[5]>values[2] or values[7]>values[6]:raise ValueError('Invalid sampling statistics')
+            sampling_stats.append(dict(zip(['ticks','attempts','successes','failed','skipped','omitted','pause_ticks','max_pause_ticks'],values)))
         elif kind==19:
             if count!=1 or not 20<=size<=32788:raise ValueError('Invalid native module block')
             base,image_size,n=struct.unpack_from('<QQI',payload)
@@ -110,7 +121,7 @@ def decode_stream(data):
             if configuration['version'] not in (1,2):raise ValueError('Unsupported capture configuration version')
             configuration['maxDurationMs']=number() if configuration['version']==2 else 0
             configuration.update(selectedMods=names(),selectedHooks=names())
-            if configuration['channels']>8191 or configuration['startOn']>10 or not 1<=configuration['stopOn']<=12 or max(configuration['startDelayMs'],configuration['stopDelayMs'],configuration['maxDurationMs'])>3600000 or cursor!=size:raise ValueError('Invalid capture configuration')
+            if configuration['channels']>16383 or configuration['startOn']>10 or not 1<=configuration['stopOn']<=12 or max(configuration['startDelayMs'],configuration['stopDelayMs'],configuration['maxDurationMs'])>3600000 or cursor!=size:raise ValueError('Invalid capture configuration')
         elif kind==11:
             cursor=4
             def string():
@@ -133,6 +144,7 @@ def decode_stream(data):
     metadata['frame_intervals']=intervals
     metadata['presentation']=presentation
     metadata['native_waits']=waits;metadata['render_states']=render_states
+    metadata['instruction_samples']=instructions;metadata['sampling_stats']=sampling_stats
     events.sort(key=lambda e:(e[1],e[4]));metadata['timeline']['events']=events;metadata['screenshots']['images']=shots
     metadata['duration_ns']=max(metadata['duration_ns'],max((e[1]+e[2] for e in events),default=0))
     return metadata

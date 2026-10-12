@@ -172,6 +172,15 @@ export interface NativeWait {
   kind: number;
   result: number;
 }
+export interface InstructionSample {
+  time: number;
+  address: string;
+  cycles: number | null;
+  pause: number;
+  thread: number;
+  flags: number;
+  returns: string[];
+}
 export interface RenderState {
   time: number;
   thread: number;
