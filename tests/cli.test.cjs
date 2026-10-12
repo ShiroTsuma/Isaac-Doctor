@@ -88,3 +88,13 @@ test('TTY progress reuses stderr and --non-interactive suppresses it even in a t
 test('diagnose exposes all-interval cohort attribution with bounded windows and rejects invalid window sizes',()=>{
  const result=json('diagnose',['--top','3','--window-ms','100','--non-interactive']);assert(result.result.summary.count>0);assert(result.result.cohorts.some(c=>c.name==='slow_with_update'));assert(result.result.windows.length<=300);assert(result.result.windows.every(w=>w.callbacks.length<=3));assert(result.result.coverage.attributed_calls>0);assert.equal(result.result.summary.instantaneous_rate_percentiles.unit,'FPS');assert.equal(run('diagnose',['--window-ms','0']).status,1);
 });
+
+test('frame CLI shares matched reference details with the viewer and rejects missing IDs',()=>{
+ const diagnosis=json('diagnose',['--top','3','--non-interactive']).result.matched_slow_frames;
+ assert(diagnosis.slowest_intervals.length>0);
+ const id=diagnosis.slowest_intervals[0].id,result=json('frame',['--id',String(id),'--top','3','--non-interactive']).result;
+ assert.equal(result.frame.id,id);assert(result.reference.frames.length<=5);assert.equal(result.node_limit,500);
+ if(result.baseline){assert.equal(result.extra_callback_self_ms,result.self-result.baselineSelf);assert(Math.abs(result.extra_wall_ms-result.extra_callback_self_ms-result.extra_unattributed_wall_ms)<1e-9);}
+ else{assert.equal(result.extra_callback_self_ms,null);assert.equal(result.extra_wall_ms,null);assert.equal(result.extra_unattributed_wall_ms,null);}
+ assert.equal(run('frame').status,1);assert.equal(run('frame',['--id','4294967295']).status,1);
+});

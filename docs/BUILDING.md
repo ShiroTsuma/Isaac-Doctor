@@ -51,7 +51,7 @@ pnpm --dir viewer dev
 
 This starts Vite with its managed local Python controller. Ending that Vite process stops/finalizes active recording and closes its controller. `.\open-profiler.ps1` starts a separate built viewer; use **Stop local server** to stop recording and close that controller. In development this leaves Vite serving the analysis UI; it does not close Vite.
 
-`pnpm --dir viewer build` runs strict TypeScript checks and ESLint with zero warnings before building. Native targets use compiler warnings as errors.
+`pnpm --dir viewer build` checks Prettier formatting for all TypeScript, TSX and MTS files, then runs strict TypeScript checks and ESLint with zero warnings before building. Run `pnpm --dir viewer format` to format the sources, or `pnpm --dir viewer format:check` to check without writing. Prettier has an exact pinned version so editor and CI formatting agree. Native targets use compiler warnings as errors.
 
 Controlled capture tests use owned Lua host processes rather than launching Isaac:
 

@@ -35,6 +35,14 @@ async function files(selector,paths){const doc=await send('DOM.getDocument',{},s
   await click('#tab-event-log');await until(()=>evaluate('document.querySelectorAll("#rows tr").length===0'));
   await click('#tab-call-tree');await until(()=>evaluate('document.querySelectorAll("#rows tr").length===0'));
   await setMinimum('0');await click('#tab-bottom-up');await until(()=>evaluate('document.querySelectorAll("#rows tr").length>0 && !document.querySelector(".short-calls-group")'));
+  await click('#tab-frames');await until(()=>evaluate('!!document.querySelector("#frame-rows .row-button")'));
+  await click('#frame-rows .row-button');await until(()=>evaluate('!!document.querySelector("#frame-explanation")'));
+  assert(await evaluate('document.querySelector("#frame-explanation").textContent.includes("Extra unattributed wall")'));
+  await click('.frame-inspector th:nth-child(4) button');assert.equal(await evaluate('document.querySelector(".frame-inspector th:nth-child(4)").getAttribute("aria-sort")'),'ascending');
+  await click('.frame-inspector .analysis-toolbar button');await click('#slow-frame-patterns');
+  await until(()=>evaluate('document.querySelector(".frame-stats")?.textContent.includes("Compared")'));
+  assert(await evaluate('document.querySelector("#analysis-content").textContent.includes("association, not proof")'));
+  await click('#analysis-content .analysis-toolbar button');
   await click('#tab-summary');
   await click('#zoom-in');await click('#zoom-in');await until(()=>evaluate('!document.querySelector(".trace-load-status")'));
   const change=async(selector,value)=>evaluate(`(()=>{const el=document.querySelector(${JSON.stringify(selector)}),set=Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set;set.call(el,${JSON.stringify(value)});el.dispatchEvent(new Event('change',{bubbles:true}));})()`);
