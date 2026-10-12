@@ -5,20 +5,27 @@ import pathlib
 import shutil
 import subprocess
 import sys
-import time
+import tempfile
 import zipfile
 
 root = pathlib.Path(__file__).resolve().parents[1]
 version = json.loads((root / 'viewer/package.json').read_text(encoding='utf-8'))['version']
-output = root / 'build/releases' / time.strftime('%Y%m%d-%H%M%S', time.gmtime())
-if output.exists():
-    raise SystemExit('Release output already exists; refusing to overwrite it.')
+releases = root / 'releases'
+archive = releases / f'IsaacDoctor-{version}-windows-x64.zip'
+checksum = archive.with_suffix('.zip.sha256')
+if archive.exists() or checksum.exists():
+    raise SystemExit(f'Release {version} already exists in releases/. Bump the version before packaging.')
 required = ['isaacprof.dll', 'isaacprof-injector.exe', 'isaacprof-collector.exe', 'isaacprof-analyze.exe']
 for name in required:
     if not (root / 'build/Release' / name).is_file():
         raise SystemExit(f'Missing native output: {name}. Run build.ps1 first.')
 if not (root / 'viewer/dist/index.html').is_file():
     raise SystemExit('Missing viewer output. Run pnpm --dir viewer build first.')
+releases.mkdir(exist_ok=True)
+# Only the ZIP and checksum survive packaging. Temporary PyInstaller output
+# stays in build/ and is removed when this process exits, including on failure.
+staging = tempfile.TemporaryDirectory(prefix='release-package-', dir=root / 'build')
+output = pathlib.Path(staging.name)
 subprocess.run([sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean', '--onedir', '--console', '--hidden-import', 'viewer-server', '--paths', str(root / 'tools'),
                 '--icon', str(root / 'viewer/public/isaac-doctor.ico'),
                 '--name', 'IsaacDoctor', '--distpath', str(output),
@@ -51,12 +58,17 @@ shutil.copy2(pathlib.Path(sys.base_prefix) / 'LICENSE.txt', package / 'PYTHON-LI
     'Recordings can be large. Leave free disk space in this extracted folder.\n'
     'The full TypeScript CLI is available from the source repository; the bundled native\n'
     'isaacprof-analyze.exe provides aggregate-only analysis.\n', encoding='utf-8')
-archive = output / f'IsaacDoctor-{version}-windows-x64.zip'
-with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED) as z:
+temporary_archive = output / archive.name
+with zipfile.ZipFile(temporary_archive, 'w', compression=zipfile.ZIP_DEFLATED) as z:
     for file in sorted(package.rglob('*')):
         if file.is_file():
             z.write(file, file.relative_to(output))
-with archive.open('rb') as handle:
+with temporary_archive.open('rb') as handle:
     digest = hashlib.file_digest(handle, 'sha256').hexdigest()
-archive.with_suffix('.zip.sha256').write_text(digest + '  ' + archive.name + '\n', encoding='ascii')
+temporary_checksum = output / checksum.name
+temporary_checksum.write_text(digest + '  ' + archive.name + '\n', encoding='ascii')
+# Publish complete files only. Existing versioned artifacts are never replaced.
+temporary_archive.rename(archive)
+temporary_checksum.rename(checksum)
+staging.cleanup()
 print(f'Release ZIP: {archive} ({archive.stat().st_size:,} bytes)')

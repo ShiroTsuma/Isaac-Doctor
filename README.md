@@ -194,6 +194,11 @@ If you share a recording, inspect its file paths, mod names, error stacks and sc
 | [Building and testing](docs/BUILDING.md) | Source setup, development server, checks and portable release packaging |
 | [CLI reference](docs/CLI.md) | Commands, structured output, automation and investigation examples |
 | [Function scopes](docs/FUNCTION-SCOPES.md) | Optional native measurements of helpers inside mod callbacks |
+
+Callback profiling works without modifying your mods. Authors can optionally
+register [internal function scopes](docs/FUNCTION-SCOPES.md) to distinguish input,
+layout, persistence and other work inside a callback. These deeper measurements
+are opt-in; automatic discovery of internal functions is not currently available.
 | [Architecture](docs/ARCHITECTURE.md) | Native instrumentation, collector, controller and viewer |
 | [Streaming format](docs/STREAMING.md) | Binary blocks, index, integrity and prepared analysis |
 | [Roadmap](docs/ROADMAP.md) | Implemented features and planned work |

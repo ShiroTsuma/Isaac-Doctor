@@ -1,4 +1,5 @@
 /build/
+/releases/
 /captures/
 *.isaacprof
 *.isaacprof.tmp

@@ -4,6 +4,12 @@ Callback attribution tells you which mod took time. Optional function scopes
 show which part of that callback took it: input handling, menu generation,
 serialization, or another helper.
 
+Ordinary callback profiling requires no changes to a mod. Internal function
+scopes are currently cooperative and optional: the author registers selected
+methods as shown below. Isaac Doctor does not automatically discover every
+function or rewrite mod files. The portable release supports registrations;
+it does not include modified Workshop mods.
+
 A mod can register selected table methods before Isaac Doctor attaches:
 
 ```lua
