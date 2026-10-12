@@ -15,6 +15,7 @@ import { ms } from './trace.ts';
 import './graphs.css';
 type Kind = 'callbacks' | GraphKind;
 interface Props {
+  graphNavigation?: { sequence: number; kind: string } | null;
   request: WorkerClient['request'];
   data: LoadedTrace | null;
   range: [number, number];
@@ -52,6 +53,20 @@ export default function Timeline(props: Props) {
   const [panes, setPanes] = useState<
     { id: number; kind: Kind; windowMs: number }[]
   >([{ id: 0, kind: 'callbacks', windowMs: 1000 }]);
+  const [appliedNavigation, setAppliedNavigation] = useState(
+    props.graphNavigation,
+  );
+  if (props.graphNavigation && props.graphNavigation !== appliedNavigation) {
+    setAppliedNavigation(props.graphNavigation);
+    const kind = props.graphNavigation.kind;
+    if (options.some((option) => option[0] === kind)) {
+      setPanes((previous) =>
+        previous.map((pane, index) =>
+          index === 0 ? { ...pane, kind: kind as Kind } : pane,
+        ),
+      );
+    }
+  }
   const primary = panes[0];
   const overviewKey = JSON.stringify([primary.kind, primary.windowMs, width]);
   const [overviewState, setOverviewState] = useState<{

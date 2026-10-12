@@ -708,7 +708,7 @@ void snapshot(bool complete) {
     writer.put<std::uint32_t>(registeredCount.load()); writer.put<std::uint32_t>(savedMetrics.size());
     writer.put<std::uint32_t>(0); writer.put<std::uint32_t>(stream->capacity);
     writer.put<std::uint64_t>(dropped.load()); writer.put<std::uint64_t>(skippedCoroutines.load()); writer.put<std::uint64_t>(hostCalls.load());
-    writer.put<std::uint64_t>(traceDropped.load()); writer.put<std::uint64_t>(traceFiltered.load()); writer.put(ns(minimumTicks)); writer.string("0.11.11");
+    writer.put<std::uint64_t>(traceDropped.load()); writer.put<std::uint64_t>(traceFiltered.load()); writer.put(ns(minimumTicks)); writer.string("0.11.12");
     const auto exeUtf8 = std::filesystem::path(exe).u8string();
     writer.string(std::string(reinterpret_cast<const char*>(exeUtf8.data()), exeUtf8.size())); writer.string(luaModulePath);
     for (const auto& [id, m] : savedMetrics) {

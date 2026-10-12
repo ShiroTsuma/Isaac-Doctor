@@ -1,3 +1,10 @@
+import NavigationSearch from './NavigationSearch.tsx';
+import { navigationViews, navigationCommands } from './navigation.ts';
+import type {
+  NavigationEntry,
+  NavigationTab,
+  FrameView,
+} from './navigation.ts';
 import SortableHeader from './SortableHeader.tsx';
 import { version } from '../package.json';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -39,14 +46,7 @@ import type {
   WorkerClient,
 } from './types.ts';
 
-type Tab =
-  | 'Summary'
-  | 'Bottom-up'
-  | 'Call tree'
-  | 'Event log'
-  | 'Frames'
-  | 'Telemetry'
-  | 'Compare';
+type Tab = NavigationTab;
 const tabs: Tab[] = [
   'Summary',
   'Bottom-up',
@@ -403,6 +403,18 @@ export default function App() {
   const [name, setName] = useState('');
   const [range, setRangeState] = useState<[number, number]>([0, 1]);
   const [tab, setTab] = useState<Tab>('Summary');
+  const [frameNavigation, setFrameNavigation] = useState<{
+    sequence: number;
+    view: FrameView;
+  }>({ sequence: 0, view: 'frames' });
+  const [navigationTarget, setNavigationTarget] = useState<{
+    sequence: number;
+    selector: string;
+  } | null>(null);
+  const [graphNavigation, setGraphNavigation] = useState<{
+    sequence: number;
+    kind: string;
+  } | null>(null);
   const [selected, setSelected] = useState<Selection | null>(null);
   const [search, setSearch] = useState('');
   const [mode, setMode] = useState<'mods' | 'callbacks' | 'hooks'>('callbacks');
@@ -1055,6 +1067,160 @@ export default function App() {
     () => new Map(data?.metrics.map((m) => [m.id, m]) || []),
     [data],
   );
+  const navigationEntries = useMemo(() => {
+    const entries: NavigationEntry[] = [
+      ...navigationViews,
+      ...navigationCommands,
+    ];
+    for (const recording of directoryFiles) {
+      entries.push({
+        id: 'recording-' + recording.key,
+        label: recording.file.name,
+        description: 'Open remembered local recording',
+        category: 'Recording',
+        keywords: recording.key,
+        value: recording.key,
+      });
+    }
+    const mods = new Set<string>();
+    const hooks = new Set<string>();
+    const sources = new Set<string>();
+    for (const metric of data?.metrics ?? []) {
+      if (!mods.has(metric.mod)) {
+        mods.add(metric.mod);
+        entries.push({
+          id: 'mod-' + metric.mod,
+          label: metric.mod,
+          description: 'Bottom-up / Mods',
+          category: 'Mod',
+          keywords: metric.mod,
+          value: metric.mod,
+          requiresRecording: true,
+        });
+      }
+      const hook = metric.callback_name || metric.callback_id;
+      if (!hooks.has(hook)) {
+        hooks.add(hook);
+        entries.push({
+          id: 'hook-' + hook,
+          label: hook,
+          description: 'Bottom-up / Hooks',
+          category: 'Hook',
+          keywords: hook,
+          value: hook,
+          requiresRecording: true,
+        });
+      }
+      const source = metric.source + ':' + metric.line;
+      if (metric.source.startsWith('@') && !sources.has(source)) {
+        sources.add(source);
+        entries.push({
+          id: 'source-' + source,
+          label: source,
+          description: metric.mod + ' / ' + hook,
+          category: 'Source',
+          keywords: source + ' ' + metric.mod + ' ' + hook,
+          metric: metric.id,
+          requiresRecording: true,
+        });
+      }
+    }
+    return entries;
+  }, [data, directoryFiles]);
+
+  function navigate(entry: NavigationEntry) {
+    if (entry.category === 'Command') {
+      const button = document.querySelector<HTMLButtonElement>(
+        entry.selector ?? '',
+      );
+      if (button && !button.disabled) {
+        button.click();
+      } else {
+        setMessage('This command is unavailable in the current state.');
+      }
+      return;
+    }
+    if (entry.category === 'Recording') {
+      const recording = directoryFiles.find((item) => item.key === entry.value);
+      if (recording) {
+        const handle = captureHandles.current.get(recording.key);
+        if (handle) {
+          void handle
+            .getFile()
+            .then((file) => load(file, recording.key, handle))
+            .catch((error) => setMessage(errorMessage(error)));
+        } else {
+          void load(recording.file, recording.key);
+        }
+      }
+      return;
+    }
+    if (entry.category === 'Mod' || entry.category === 'Hook') {
+      setTab('Bottom-up');
+      setMode(entry.category === 'Mod' ? 'mods' : 'hooks');
+      setSearch(entry.value ?? '');
+    } else if (entry.category === 'Source') {
+      setSelected({ metric: metricMap.get(entry.metric ?? 0) });
+      setTab('Summary');
+    } else if (entry.tab) {
+      setTab(entry.tab);
+      if (entry.tab === 'Frames') {
+        setFrameNavigation((previous) => ({
+          sequence: previous.sequence + 1,
+          view: entry.frameView ?? 'frames',
+        }));
+      }
+    }
+    if (entry.graph) {
+      setGraphNavigation((previous) => ({
+        sequence: (previous?.sequence ?? 0) + 1,
+        kind: entry.graph!,
+      }));
+    }
+    const selector =
+      entry.category === 'Source'
+        ? '#detail-content details'
+        : (entry.target ?? '#analysis-content');
+    setNavigationTarget((previous) => ({
+      sequence: (previous?.sequence ?? 0) + 1,
+      selector,
+    }));
+  }
+
+  useEffect(() => {
+    if (!navigationTarget) {
+      return;
+    }
+    const find = () => {
+      const target = document.querySelector<HTMLElement>(
+        navigationTarget.selector,
+      );
+      if (!target) {
+        return false;
+      }
+      if (target instanceof HTMLDetailsElement) {
+        target.open = true;
+      }
+      target.scrollIntoView({ block: 'nearest' });
+      target.setAttribute('tabindex', '-1');
+      target.focus({ preventScroll: true });
+      return true;
+    };
+    if (find()) {
+      return;
+    }
+    const observer = new MutationObserver(() => {
+      if (find()) {
+        observer.disconnect();
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    const timer = setTimeout(() => observer.disconnect(), 10000);
+    return () => {
+      observer.disconnect();
+      clearTimeout(timer);
+    };
+  }, [navigationTarget]);
   const style = { '--drawer-height': `${panelHeight}px` } as CSSProperties;
   return (
     <main
@@ -1088,6 +1254,11 @@ export default function App() {
         <span id="filename" className="recording-name" title={name}>
           {name || 'No recording'}
         </span>
+        <NavigationSearch
+          entries={navigationEntries}
+          hasRecording={!!data}
+          select={navigate}
+        />
         <span className="version">{version}</span>
       </header>
       <div className="toolbar" role="toolbar" aria-label="Performance controls">
@@ -1383,6 +1554,7 @@ export default function App() {
           processing={processingProgress}
         />
         <Timeline
+          graphNavigation={graphNavigation}
           data={data}
           range={range}
           setRange={setRange}
@@ -1477,6 +1649,8 @@ export default function App() {
             />
           ) : tab === 'Frames' ? (
             <Frames
+              key={frameNavigation.sequence}
+              initialView={frameNavigation.view}
               data={data}
               range={range}
               request={requestWorker}

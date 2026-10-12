@@ -1,3 +1,4 @@
+import type { FrameView } from './navigation.ts';
 import SlowFramePatterns from './SlowFramePatterns.tsx';
 import SortableHeader from './SortableHeader.tsx';
 import { useEffect, useMemo, useState } from 'react';
@@ -18,7 +19,9 @@ export default function Frames({
   request,
   inspect,
   setRange,
+  initialView = 'frames',
 }: {
+  initialView?: FrameView;
   data: LoadedTrace;
   range: [number, number];
   request: WorkerClient['request'];
@@ -40,10 +43,12 @@ export default function Frames({
     result?: FrameResults;
     error?: string;
   } | null>(null);
-  const [showPresentation, setShowPresentation] = useState(false);
+  const [showPresentation, setShowPresentation] = useState(
+    initialView === 'presentation',
+  );
   const queryKey = JSON.stringify([kind, range, minimumUs, search]);
   const [resolvedKey, setResolvedKey] = useState('');
-  const [patterns, setPatterns] = useState(false);
+  const [patterns, setPatterns] = useState(initialView === 'patterns');
   const [selection, setSelection] = useState<{
     data: LoadedTrace;
     frame: FrameRow;

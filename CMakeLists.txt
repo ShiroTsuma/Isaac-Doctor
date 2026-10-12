@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(IsaacProf VERSION 0.11.11 LANGUAGES C CXX)
+project(IsaacProf VERSION 0.11.12 LANGUAGES C CXX)
 if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
   message(FATAL_ERROR "IsaacProf POC requires Windows x86. Configure with -A Win32.")
 endif()
