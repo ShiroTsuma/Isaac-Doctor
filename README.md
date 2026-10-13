@@ -128,7 +128,7 @@ Times count from the beginning of collection, after the start condition and star
 
 ![Capture configuration: Stop when → After duration, with Record for directly beside it](docs/images/capture-configuration-record-for.png)
 
-*Record Diepio and CuerLib render/update callbacks for **25 seconds**, starting **250 ms after room entry**. Expand **Capture scope** to select the channels, mods and hooks.*
+*Example configuration: record Diepio and CuerLib render/update callbacks for **25 seconds**, starting **250 ms after room entry**. Expand **Capture scope** to select the channels, mods and hooks.*
 
 - **Channels:** select callback timings, render/update frames, counters, memory, context, markers, errors and other available data. Screenshots have a separate switch.
 - **Mods and hooks:** names load after **Connect game**. Use **Refresh lists** to read them again, select names from the dropdowns, or enter exact names one per line. Empty filters mean all; populated mod and hook filters must both match. Hooks also accept numeric IDs.
